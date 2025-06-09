@@ -1,6 +1,6 @@
 # src/ui/components/ui_components.py - ИСЧЕРПЫВАЮЩЕ ПОЛНАЯ ВЕРСИЯ
 """
-Главный менеджер UI компонентов с полной интеграцией архитектуры
+Главный менеджер UI компонентов с выбором компактной/стандартной компоновки
 """
 import tkinter as tk
 from tkinter import ttk
@@ -10,7 +10,7 @@ from datetime import datetime
 import time
 
 class UIComponents:
-    """Главный менеджер UI компонентов (ПОЛНАЯ ИНТЕГРАЦИЯ)"""
+    """Главный менеджер UI компонентов с полной интеграцией"""
 
     def __init__(self, root: tk.Tk, controller):
         self.root = root
@@ -18,11 +18,11 @@ class UIComponents:
         self.logger = logging.getLogger(self.__class__.__name__)
 
         # UI панели
-        self.time_panel: Optional['TimePanel'] = None
-        self.filter_panel: Optional['FilterPanel'] = None
-        self.parameter_panel: Optional['ParameterPanel'] = None
-        self.action_panel: Optional['ActionPanel'] = None
-        self.plot_panel: Optional['PlotVisualizationPanel'] = None
+        self.time_panel: Optional[Any] = None
+        self.filter_panel: Optional[Any] = None
+        self.parameter_panel: Optional[Any] = None
+        self.action_panel: Optional[Any] = None
+        self.plot_panel: Optional[Any] = None
 
         # Основные контейнеры
         self.main_content_frame: Optional[ttk.Frame] = None
@@ -32,6 +32,7 @@ class UIComponents:
         # Состояние UI
         self.is_initialized = False
         self.is_loading = False
+        self.use_compact_layout = True  # ПЕРЕКЛЮЧАТЕЛЬ КОМПОНОВКИ
         
         # Кэш для оптимизации обновлений
         self._ui_cache = {}
@@ -54,27 +55,16 @@ class UIComponents:
         try:
             # Главный контейнер
             self.main_content_frame = ttk.Frame(self.root)
-            self.main_content_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+            self.main_content_frame.grid(row=1, column=0, sticky="nsew", padx=3, pady=3)
 
             # Настройка сетки главного окна
             self.root.grid_rowconfigure(1, weight=1)
             self.root.grid_columnconfigure(0, weight=1)
 
-            # Настройка сетки главного контейнера
-            self.main_content_frame.grid_rowconfigure(0, weight=1)
-            self.main_content_frame.grid_columnconfigure(0, weight=1)  # Левая панель
-            self.main_content_frame.grid_columnconfigure(1, weight=2)  # Правая панель (графики)
-
-            # Левая панель управления
-            self.left_panel_frame = ttk.Frame(self.main_content_frame)
-            self.left_panel_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
-            self.left_panel_frame.grid_columnconfigure(0, weight=1)
-
-            # Правая панель (для графиков)
-            self.right_panel_frame = ttk.Frame(self.main_content_frame)
-            self.right_panel_frame.grid(row=0, column=1, sticky="nsew")
-            self.right_panel_frame.grid_rowconfigure(0, weight=1)
-            self.right_panel_frame.grid_columnconfigure(0, weight=1)
+            if self.use_compact_layout:
+                self._setup_compact_layout()
+            else:
+                self._setup_standard_layout()
 
             self.logger.info("Основной макет создан")
 
@@ -82,23 +72,48 @@ class UIComponents:
             self.logger.error(f"Ошибка создания основного макета: {e}")
             raise
 
+    def _setup_compact_layout(self):
+        """КОМПАКТНАЯ компоновка - левая панель + правая панель графиков"""
+        # Настройка сетки главного контейнера
+        self.main_content_frame.grid_rowconfigure(0, weight=1)
+        self.main_content_frame.grid_columnconfigure(0, weight=1)  # Левая панель
+        self.main_content_frame.grid_columnconfigure(1, weight=2)  # Правая панель (графики)
+
+        # Левая панель управления (компактная)
+        self.left_panel_frame = ttk.Frame(self.main_content_frame)
+        self.left_panel_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 3))
+        self.left_panel_frame.grid_columnconfigure(0, weight=1)
+
+        # Правая панель (для графиков)
+        self.right_panel_frame = ttk.Frame(self.main_content_frame)
+        self.right_panel_frame.grid(row=0, column=1, sticky="nsew")
+        self.right_panel_frame.grid_rowconfigure(0, weight=1)
+        self.right_panel_frame.grid_columnconfigure(0, weight=1)
+
+    def _setup_standard_layout(self):
+        """СТАНДАРТНАЯ компоновка - только левая панель"""
+        # Настройка сетки главного контейнера
+        self.main_content_frame.grid_rowconfigure(0, weight=1)
+        self.main_content_frame.grid_columnconfigure(0, weight=1)
+
+        # Левая панель управления
+        self.left_panel_frame = ttk.Frame(self.main_content_frame)
+        self.left_panel_frame.grid(row=0, column=0, sticky="nsew")
+        self.left_panel_frame.grid_columnconfigure(0, weight=1)
+
     def _create_ui_panels(self):
-        """Создание всех UI панелей"""
+        """Создание UI панелей с выбором типа"""
         try:
-            # 1. Панель времени
-            self._create_time_panel()
+            if self.use_compact_layout:
+                self.logger.info("Создание КОМПАКТНЫХ панелей")
+                self._create_compact_panels()
+            else:
+                self.logger.info("Создание СТАНДАРТНЫХ панелей")
+                self._create_standard_panels()
 
-            # 2. Панель фильтров
-            self._create_filter_panel()
-
-            # 3. Панель параметров (основная)
-            self._create_parameter_panel()
-
-            # 4. Панель действий
-            self._create_action_panel()
-
-            # 5. Панель визуализации графиков
-            self._create_plot_visualization_panel()
+            # Панель визуализации графиков (только для компактного режима)
+            if self.use_compact_layout:
+                self._create_plot_visualization_panel()
 
             self.logger.info("Все UI панели созданы")
 
@@ -106,8 +121,147 @@ class UIComponents:
             self.logger.error(f"Ошибка создания UI панелей: {e}")
             raise
 
-    def _create_time_panel(self):
-        """Создание панели управления временем"""
+    def _create_compact_panels(self):
+        """Создание КОМПАКТНЫХ панелей"""
+        try:
+            # 1. Компактная панель времени (строка 0)
+            self._create_compact_time_panel()
+
+            # 2. Компактная панель фильтров (строка 1)
+            self._create_compact_filter_panel()
+
+            # 3. Горизонтальная панель параметров (строка 2)
+            self._create_horizontal_parameter_panel()
+
+            # 4. Горизонтальная панель действий (строка 3)
+            self._create_horizontal_action_panel()
+
+        except Exception as e:
+            self.logger.error(f"Ошибка создания компактных панелей: {e}")
+            # Fallback к стандартным панелям
+            self.use_compact_layout = False
+            self._create_standard_panels()
+
+    def _create_compact_time_panel(self):
+        """ИСПРАВЛЕННОЕ создание компактной панели времени"""
+        try:
+            time_frame = ttk.LabelFrame(
+                self.left_panel_frame,
+                text="Временной диапазон",
+                padding="3"
+            )
+            time_frame.grid(row=0, column=0, sticky="ew", pady=(0, 3))
+            time_frame.grid_columnconfigure(0, weight=1)
+
+            from .compact_time_panel import CompactTimePanel
+            self.time_panel = CompactTimePanel(time_frame, self.controller)
+            self.time_panel.grid(row=0, column=0, sticky="ew")
+            self.logger.info("✅ CompactTimePanel создан принудительно")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка создания CompactTimePanel: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback к обычному TimePanel
+            self._create_fallback_time_panel(time_frame)
+
+    def _create_compact_filter_panel(self):
+        """Создание компактной панели фильтров"""
+        try:
+            filter_frame = ttk.LabelFrame(
+                self.left_panel_frame,
+                text="Фильтры",
+                padding="3"
+            )
+            filter_frame.grid(row=1, column=0, sticky="ew", pady=(0, 3))
+            filter_frame.grid_columnconfigure(0, weight=1)
+
+            try:
+                from .compact_filter_panel import CompactFilterPanel
+                self.filter_panel = CompactFilterPanel(filter_frame, self.controller)
+                self.filter_panel.grid(row=0, column=0, sticky="ew")
+                self.logger.debug("✅ CompactFilterPanel создан")
+            except ImportError:
+                self.logger.warning("CompactFilterPanel не найден, используется FilterPanel")
+                self._create_fallback_filter_panel(filter_frame)
+
+        except Exception as e:
+            self.logger.error(f"Ошибка создания компактной панели фильтров: {e}")
+            self._create_filter_panel_placeholder()
+
+    def _create_horizontal_parameter_panel(self):
+        """Создание горизонтальной панели параметров"""
+        try:
+            parameter_frame = ttk.LabelFrame(
+                self.left_panel_frame,
+                text="Параметры телеметрии",
+                padding="3"
+            )
+            parameter_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 3))
+            parameter_frame.grid_columnconfigure(0, weight=1)
+            parameter_frame.grid_rowconfigure(0, weight=1)
+
+            # КРИТИЧНО: Устанавливаем вес для растягивания панели параметров
+            self.left_panel_frame.grid_rowconfigure(2, weight=1)
+
+            try:
+                from .horizontal_parameter_panel import HorizontalParameterPanel
+                self.parameter_panel = HorizontalParameterPanel(parameter_frame, self.controller)
+                self.parameter_panel.grid(row=0, column=0, sticky="nsew")
+                self.logger.info("✅ HorizontalParameterPanel создан")
+            except ImportError:
+                self.logger.warning("HorizontalParameterPanel не найден, используется ParameterPanel")
+                self._create_fallback_parameter_panel(parameter_frame)
+
+        except Exception as e:
+            self.logger.error(f"Ошибка создания горизонтальной панели параметров: {e}")
+            self._create_parameter_panel_placeholder()
+
+    def _create_horizontal_action_panel(self):
+        """Создание горизонтальной панели действий"""
+        try:
+            action_frame = ttk.LabelFrame(
+                self.left_panel_frame,
+                text="Действия",
+                padding="3"
+            )
+            action_frame.grid(row=3, column=0, sticky="ew")
+            action_frame.grid_columnconfigure(0, weight=1)
+
+            try:
+                from .horizontal_action_panel import HorizontalActionPanel
+                self.action_panel = HorizontalActionPanel(action_frame, self.controller)
+                self.action_panel.grid(row=0, column=0, sticky="ew")
+                self.logger.debug("✅ HorizontalActionPanel создан")
+            except ImportError:
+                self.logger.warning("HorizontalActionPanel не найден, используется ActionPanel")
+                self._create_fallback_action_panel(action_frame)
+
+        except Exception as e:
+            self.logger.error(f"Ошибка создания горизонтальной панели действий: {e}")
+            self._create_action_panel_placeholder()
+
+    def _create_standard_panels(self):
+        """Создание СТАНДАРТНЫХ панелей"""
+        try:
+            # 1. Панель времени
+            self._create_standard_time_panel()
+
+            # 2. Панель фильтров
+            self._create_standard_filter_panel()
+
+            # 3. Панель параметров (основная)
+            self._create_standard_parameter_panel()
+
+            # 4. Панель действий
+            self._create_standard_action_panel()
+
+        except Exception as e:
+            self.logger.error(f"Ошибка создания стандартных панелей: {e}")
+            raise
+
+    def _create_standard_time_panel(self):
+        """Создание стандартной панели времени"""
         try:
             time_frame = ttk.LabelFrame(
                 self.left_panel_frame,
@@ -117,35 +271,14 @@ class UIComponents:
             time_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
             time_frame.grid_columnconfigure(0, weight=1)
 
-            # Импорт и создание TimePanel
-            from .time_panel import TimePanel
-            self.time_panel = TimePanel(time_frame, self.controller)
-            self.time_panel.grid(row=0, column=0, sticky="ew")
-
-            self.logger.debug("Панель времени создана")
+            self._create_fallback_time_panel(time_frame)
 
         except Exception as e:
-            self.logger.error(f"Ошибка создания панели времени: {e}")
-            # Создаем заглушку
+            self.logger.error(f"Ошибка создания стандартной панели времени: {e}")
             self._create_time_panel_placeholder()
 
-    def _create_time_panel_placeholder(self):
-        """Создание заглушки панели времени"""
-        time_frame = ttk.LabelFrame(
-            self.left_panel_frame,
-            text="Временной диапазон (недоступно)",
-            padding="8"
-        )
-        time_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        
-        ttk.Label(
-            time_frame,
-            text="Панель времени временно недоступна",
-            foreground="gray"
-        ).pack()
-
-    def _create_filter_panel(self):
-        """Создание панели фильтров"""
+    def _create_standard_filter_panel(self):
+        """Создание стандартной панели фильтров"""
         try:
             filter_frame = ttk.LabelFrame(
                 self.left_panel_frame,
@@ -155,35 +288,14 @@ class UIComponents:
             filter_frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
             filter_frame.grid_columnconfigure(0, weight=1)
 
-            # Импорт и создание FilterPanel
-            from .filter_panel import FilterPanel
-            self.filter_panel = FilterPanel(filter_frame, self.controller)
-            self.filter_panel.grid(row=0, column=0, sticky="ew")
-
-            self.logger.debug("Панель фильтров создана")
+            self._create_fallback_filter_panel(filter_frame)
 
         except Exception as e:
-            self.logger.error(f"Ошибка создания панели фильтров: {e}")
-            # Создаем заглушку
+            self.logger.error(f"Ошибка создания стандартной панели фильтров: {e}")
             self._create_filter_panel_placeholder()
 
-    def _create_filter_panel_placeholder(self):
-        """Создание заглушки панели фильтров"""
-        filter_frame = ttk.LabelFrame(
-            self.left_panel_frame,
-            text="Фильтры (недоступно)",
-            padding="8"
-        )
-        filter_frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        
-        ttk.Label(
-            filter_frame,
-            text="Панель фильтров временно недоступна",
-            foreground="gray"
-        ).pack()
-
-    def _create_parameter_panel(self):
-        """КРИТИЧНО: Создание панели параметров"""
+    def _create_standard_parameter_panel(self):
+        """Создание стандартной панели параметров"""
         try:
             parameter_frame = ttk.LabelFrame(
                 self.left_panel_frame,
@@ -197,44 +309,14 @@ class UIComponents:
             # КРИТИЧНО: Устанавливаем вес для растягивания панели параметров
             self.left_panel_frame.grid_rowconfigure(2, weight=1)
 
-            # Импорт и создание ParameterPanel
-            from .parameter_panel import ParameterPanel
-            self.parameter_panel = ParameterPanel(parameter_frame, self.controller)
-            self.parameter_panel.grid(row=0, column=0, sticky="nsew")
-
-            self.logger.info("✅ Панель параметров создана успешно")
+            self._create_fallback_parameter_panel(parameter_frame)
 
         except Exception as e:
-            self.logger.error(f"❌ Ошибка создания панели параметров: {e}")
-            import traceback
-            traceback.print_exc()
-            # Создаем заглушку
+            self.logger.error(f"Ошибка создания стандартной панели параметров: {e}")
             self._create_parameter_panel_placeholder()
 
-    def _create_parameter_panel_placeholder(self):
-        """Создание заглушки панели параметров"""
-        parameter_frame = ttk.LabelFrame(
-            self.left_panel_frame,
-            text="Параметры (недоступно)",
-            padding="8"
-        )
-        parameter_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
-        parameter_frame.grid_columnconfigure(0, weight=1)
-        parameter_frame.grid_rowconfigure(0, weight=1)
-        
-        # Устанавливаем вес
-        self.left_panel_frame.grid_rowconfigure(2, weight=1)
-        
-        placeholder_text = ttk.Label(
-            parameter_frame,
-            text="Панель параметров временно недоступна\nПроверьте логи для деталей",
-            foreground="red",
-            justify=tk.CENTER
-        )
-        placeholder_text.pack(expand=True)
-
-    def _create_action_panel(self):
-        """Создание панели действий"""
+    def _create_standard_action_panel(self):
+        """Создание стандартной панели действий"""
         try:
             action_frame = ttk.LabelFrame(
                 self.left_panel_frame,
@@ -244,29 +326,109 @@ class UIComponents:
             action_frame.grid(row=3, column=0, sticky="ew")
             action_frame.grid_columnconfigure(0, weight=1)
 
-            # Импорт и создание ActionPanel
-            from .action_panel import ActionPanel
-            self.action_panel = ActionPanel(action_frame, self.controller)
-            self.action_panel.grid(row=0, column=0, sticky="ew")
-
-            self.logger.debug("Панель действий создана")
+            self._create_fallback_action_panel(action_frame)
 
         except Exception as e:
-            self.logger.error(f"Ошибка создания панели действий: {e}")
-            # Создаем заглушку
+            self.logger.error(f"Ошибка создания стандартной панели действий: {e}")
             self._create_action_panel_placeholder()
+
+    # === FALLBACK МЕТОДЫ ===
+
+    def _create_fallback_time_panel(self, parent):
+        """Fallback создание TimePanel"""
+        try:
+            from .time_panel import TimePanel
+            self.time_panel = TimePanel(parent, self.controller)
+            self.time_panel.grid(row=0, column=0, sticky="ew")
+            self.logger.debug("TimePanel создан (fallback)")
+        except Exception as e:
+            self.logger.error(f"Ошибка создания TimePanel: {e}")
+            self._create_time_panel_placeholder()
+
+    def _create_fallback_filter_panel(self, parent):
+        """Fallback создание FilterPanel"""
+        try:
+            from .filter_panel import FilterPanel
+            self.filter_panel = FilterPanel(parent, self.controller)
+            self.filter_panel.grid(row=0, column=0, sticky="ew")
+            self.logger.debug("FilterPanel создан (fallback)")
+        except Exception as e:
+            self.logger.error(f"Ошибка создания FilterPanel: {e}")
+            self._create_filter_panel_placeholder()
+
+    def _create_fallback_parameter_panel(self, parent):
+        """Fallback создание ParameterPanel"""
+        try:
+            from .parameter_panel import ParameterPanel
+            self.parameter_panel = ParameterPanel(parent, self.controller)
+            self.parameter_panel.grid(row=0, column=0, sticky="nsew")
+            self.logger.info("✅ ParameterPanel создан (fallback)")
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка создания ParameterPanel: {e}")
+            import traceback
+            traceback.print_exc()
+            self._create_parameter_panel_placeholder()
+
+    def _create_fallback_action_panel(self, parent):
+        """Fallback создание ActionPanel"""
+        try:
+            from .action_panel import ActionPanel
+            self.action_panel = ActionPanel(parent, self.controller)
+            self.action_panel.grid(row=0, column=0, sticky="ew")
+            self.logger.debug("ActionPanel создан (fallback)")
+        except Exception as e:
+            self.logger.error(f"Ошибка создания ActionPanel: {e}")
+            self._create_action_panel_placeholder()
+
+    # === PLACEHOLDER МЕТОДЫ ===
+
+    def _create_time_panel_placeholder(self):
+        """Создание заглушки панели времени"""
+        placeholder_frame = ttk.Frame(self.left_panel_frame)
+        placeholder_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        
+        ttk.Label(
+            placeholder_frame,
+            text="Панель времени временно недоступна",
+            foreground="gray"
+        ).pack()
+
+    def _create_filter_panel_placeholder(self):
+        """Создание заглушки панели фильтров"""
+        placeholder_frame = ttk.Frame(self.left_panel_frame)
+        placeholder_frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        
+        ttk.Label(
+            placeholder_frame,
+            text="Панель фильтров временно недоступна",
+            foreground="gray"
+        ).pack()
+
+    def _create_parameter_panel_placeholder(self):
+        """Создание заглушки панели параметров"""
+        placeholder_frame = ttk.Frame(self.left_panel_frame)
+        placeholder_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
+        placeholder_frame.grid_columnconfigure(0, weight=1)
+        placeholder_frame.grid_rowconfigure(0, weight=1)
+        
+        # Устанавливаем вес
+        self.left_panel_frame.grid_rowconfigure(2, weight=1)
+        
+        placeholder_text = ttk.Label(
+            placeholder_frame,
+            text="Панель параметров временно недоступна\nПроверьте логи для деталей",
+            foreground="red",
+            justify=tk.CENTER
+        )
+        placeholder_text.pack(expand=True)
 
     def _create_action_panel_placeholder(self):
         """Создание заглушки панели действий"""
-        action_frame = ttk.LabelFrame(
-            self.left_panel_frame,
-            text="Действия (недоступно)",
-            padding="8"
-        )
-        action_frame.grid(row=3, column=0, sticky="ew")
+        placeholder_frame = ttk.Frame(self.left_panel_frame)
+        placeholder_frame.grid(row=3, column=0, sticky="ew")
         
         ttk.Label(
-            action_frame,
+            placeholder_frame,
             text="Панель действий временно недоступна",
             foreground="gray"
         ).pack()
@@ -339,11 +501,12 @@ class UIComponents:
 
     def _create_plot_panel_placeholder_simple(self):
         """Простая заглушка панели графиков"""
-        ttk.Label(
-            self.right_panel_frame,
-            text="Панель графиков недоступна",
-            foreground="gray"
-        ).grid(row=0, column=0, padx=20, pady=20)
+        if hasattr(self, 'right_panel_frame') and self.right_panel_frame:
+            ttk.Label(
+                self.right_panel_frame,
+                text="Панель графиков недоступна",
+                foreground="gray"
+            ).grid(row=0, column=0, padx=20, pady=20)
 
     def _setup_bindings(self):
         """Настройка связей между компонентами"""
@@ -695,6 +858,7 @@ class UIComponents:
             diagnosis = {
                 'initialized': self.is_initialized,
                 'loading': self.is_loading,
+                'compact_layout': self.use_compact_layout,
                 'cache_size': len(self._ui_cache),
                 'event_callbacks': {k: len(v) for k, v in self._event_callbacks.items()},
                 'components': {}
@@ -738,6 +902,7 @@ class UIComponents:
             
             self.logger.info("=== ДИАГНОСТИКА UI КОМПОНЕНТОВ ===")
             self.logger.info(f"Инициализированы: {diagnosis['initialized']}")
+            self.logger.info(f"Компактная компоновка: {diagnosis['compact_layout']}")
             self.logger.info(f"Состояние загрузки: {diagnosis['loading']}")
             self.logger.info(f"Размер кэша: {diagnosis['cache_size']}")
             
@@ -831,6 +996,7 @@ class UIComponents:
         return {
             'initialized': self.is_initialized,
             'loading': self.is_loading,
+            'compact_layout': self.use_compact_layout,
             'cache_size': len(self._ui_cache),
             'components_ready': {
                 name: self.is_component_ready(name)
@@ -838,8 +1004,29 @@ class UIComponents:
             }
         }
 
+    def switch_layout_mode(self, compact: bool = True):
+        """НОВЫЙ: Переключение режима компоновки"""
+        try:
+            if self.use_compact_layout == compact:
+                self.logger.info(f"Режим компоновки уже установлен: {'компактный' if compact else 'стандартный'}")
+                return
+
+            self.use_compact_layout = compact
+            self.logger.info(f"Переключение на {'компактный' if compact else 'стандартный'} режим")
+
+            # Пересоздаем UI
+            self.cleanup()
+            self._setup_main_layout()
+            self._create_ui_panels()
+            self._setup_bindings()
+
+            self.logger.info(f"Режим компоновки изменен на {'компактный' if compact else 'стандартный'}")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка переключения режима компоновки: {e}")
+
     def __str__(self):
-        return f"UIComponents(initialized={self.is_initialized}, components={sum(1 for p in [self.time_panel, self.filter_panel, self.parameter_panel, self.action_panel, self.plot_panel] if p is not None)})"
+        return f"UIComponents(initialized={self.is_initialized}, compact={self.use_compact_layout}, components={sum(1 for p in [self.time_panel, self.filter_panel, self.parameter_panel, self.action_panel, self.plot_panel] if p is not None)})"
 
     def __repr__(self):
         return self.__str__()

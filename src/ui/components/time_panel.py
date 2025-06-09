@@ -198,6 +198,13 @@ class TimePanel(ttk.Frame):
             self.logger.error(f"Ошибка получения временного диапазона: {e}")
             return "", ""
 
+    def set_time_range(self, from_time: str, to_time: str):
+        """Альтернативный метод установки времени"""
+        try:
+            self.update_time_fields(from_time, to_time)
+        except Exception as e:
+            self.logger.error(f"Ошибка set_time_range: {e}")
+
     def get_filter_settings(self) -> Dict[str, bool]:
         """НОВЫЙ МЕТОД: Получение настроек фильтрации"""
         try:

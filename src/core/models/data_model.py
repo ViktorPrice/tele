@@ -293,30 +293,65 @@ class DataModel:
             self.logger.error(f"Ошибка обработки данных телеметрии: {e}")
             raise
 
-    def get_time_range_fields(self) -> Optional[Dict[str, str]]:
-        """Получение кэшированных полей временного диапазона для UI"""
+    def get_time_range_fields(self) -> Optional[Dict[str, Any]]:
+        """ИСПРАВЛЕННОЕ получение полей времени"""
         try:
-            if self._time_range_fields:
-                self.logger.debug(
-                    f"Возвращены кэшированные поля времени: {self._time_range_fields}")
+            # Проверяем наличие time_range_service
+            if hasattr(self, 'time_range_service') and self.time_range_service:
+                time_range = self.time_range_service.get_time_range()
+                if time_range:
+                    return {
+                        'from_time': time_range['from_time'],
+                        'to_time': time_range['to_time'],
+                        'duration': self._calculate_duration(time_range['from_time'], time_range['to_time']),
+                        'total_records': getattr(self, 'records_count', 0)
+                    }
+
+            # Fallback через data_loader
+            if hasattr(self, 'data_loader') and self.data_loader:
+                if (hasattr(self.data_loader, 'min_timestamp') and 
+                    hasattr(self.data_loader, 'max_timestamp')):
+                    
+                    min_time = self.data_loader.min_timestamp
+                    max_time = self.data_loader.max_timestamp
+                    
+                    if min_time and max_time:
+                        return {
+                            'from_time': min_time,
+                            'to_time': max_time,
+                            'duration': self._calculate_duration(min_time, max_time),
+                            'total_records': getattr(self.data_loader, 'records_count', 0)
+                        }
+
+            # Fallback через _time_range_fields (если есть)
+            if hasattr(self, '_time_range_fields') and self._time_range_fields:
                 return self._time_range_fields
 
-            # Если кэш пустой, но есть telemetry_data - инициализируем
-            if self._telemetry_data:
-                self.logger.info(
-                    "Кэш пустой, повторная инициализация временных полей...")
-                self._time_range_fields = self.time_range_service.initialize_from_telemetry_data(
-                    self._telemetry_data
-                )
-                return self._time_range_fields
-
-            self.logger.warning(
-                "Временные поля не инициализированы и нет telemetry_data")
+            self.logger.warning("Не удалось получить поля времени")
             return None
 
         except Exception as e:
             self.logger.error(f"Ошибка получения полей времени: {e}")
             return None
+
+    def _calculate_duration(self, from_time_str: str, to_time_str: str) -> str:
+        """Вычисление длительности"""
+        try:
+            from datetime import datetime
+            from_time = datetime.strptime(from_time_str, '%Y-%m-%d %H:%M:%S')
+            to_time = datetime.strptime(to_time_str, '%Y-%m-%d %H:%M:%S')
+            
+            duration = to_time - from_time
+            days = duration.days
+            hours, remainder = divmod(duration.seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            
+            if days > 0:
+                return f"{days} дн. {hours:02d}:{minutes:02d}:{seconds:02d}"
+            else:
+                return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        except Exception:
+            return "Неизвестно"
 
     def set_user_time_range(self, from_time: str, to_time: str) -> bool:
         """Установка пользовательского временного диапазона"""
@@ -619,36 +654,3 @@ class DataModel:
             stats['time_range_stats'] = self.get_time_range_statistics()
 
         return stats
-
-    # Дополнение к src/core/models/data_model.py
-    """
-    Добавляем метод get_time_range_fields в DataModel
-    """
-
-    def get_time_range_fields(self) -> Optional[Dict[str, str]]:
-        """НОВОЕ: Получение полей временного диапазона для UI"""
-        try:
-            if not self.telemetry_data:
-                return None
-
-            # Получаем временной диапазон
-            start_time, end_time = self.telemetry_data.get_time_range_for_analysis()
-
-            # Формируем поля
-            duration = end_time - start_time
-            total_records = len(
-                self.telemetry_data.data) if self.telemetry_data.data is not None else 0
-
-            time_fields = {
-                'from_time': start_time.strftime('%Y-%m-%d %H:%M:%S'),
-                'to_time': end_time.strftime('%Y-%m-%d %H:%M:%S'),
-                'duration': str(duration),
-                'total_records': total_records
-            }
-
-            self.logger.debug(f"Возвращены поля времени: {time_fields}")
-            return time_fields
-
-        except Exception as e:
-            self.logger.error(f"Ошибка получения полей времени: {e}")
-            return None

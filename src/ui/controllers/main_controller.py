@@ -338,10 +338,14 @@ class MainController:
             # Способ 2: Через модель (fallback)
             if not time_fields:
                 time_fields = self._get_time_fields_from_model()
+                if time_fields:
+                    self.logger.info(f"✅ Время получено через модель: {time_fields.get('from_time')} - {time_fields.get('to_time')}")
 
             # Способ 3: Через data_loader (fallback)
             if not time_fields:
                 time_fields = self._get_time_fields_from_data_loader()
+                if time_fields:
+                    self.logger.info(f"✅ Время получено через data_loader: {time_fields.get('from_time')} - {time_fields.get('to_time')}")
 
             # Обновляем UI
             if time_fields and time_fields.get('from_time') and time_fields.get('to_time'):
@@ -350,6 +354,12 @@ class MainController:
                     self.logger.info(f"✅ Временной диапазон обновлен: {time_fields['from_time']} - {time_fields['to_time']}")
                 else:
                     self.logger.error("❌ Не удалось обновить временной диапазон в UI")
+
+                # Добавляем отложенное обновление времени через after
+                if hasattr(self.view, 'root'):
+                    self.view.root.after(100, lambda: self._delayed_time_update(time_fields))
+                    self.logger.info("✅ Запланировано отложенное обновление времени")
+
             else:
                 self.logger.warning("⚠️ Временной диапазон не получен")
 
@@ -469,6 +479,13 @@ class MainController:
                 else:
                     available_methods = [m for m in dir(time_panel) if not m.startswith('_')]
                     self.logger.error(f"❌ time_panel не имеет метода update_time_fields. Доступные методы: {available_methods}")
+                    
+                    # Попробуем альтернативные методы
+                    if hasattr(time_panel, 'set_time_range'):
+                        time_panel.set_time_range(time_fields['from_time'], time_fields['to_time'])
+                        self.logger.info("✅ Использован альтернативный метод set_time_range")
+                        return True
+                    
                     return False
             else:
                 self.logger.error("❌ time_panel НЕ НАЙДЕН во всех попытках поиска")
@@ -544,6 +561,11 @@ class MainController:
 
                 # Применяем начальные фильтры
                 self.apply_filters()
+
+                # ПРИНУДИТЕЛЬНОЕ обновление UI
+                if hasattr(self.view, 'root'):
+                    self.view.root.update_idletasks()
+                    self.view.root.update()
 
                 # Уведомляем о загрузке параметров
                 self._emit_event('parameters_updated', {'count': len(params)})
