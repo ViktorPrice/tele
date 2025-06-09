@@ -212,19 +212,42 @@ def _create_application_context(components, logger):
 
             # Установка filter_panel
             if hasattr(main_window.ui_components, 'filter_panel'):
-                # Используем внутренний атрибут для установки, т.к. свойство без сеттера
-                setattr(main_controller.view, '_filter_panel',
-                        main_window.ui_components.filter_panel)
+                if hasattr(main_controller, 'set_filter_panel'):
+                    main_controller.set_filter_panel(main_window.ui_components.filter_panel)
+                else:
+                    setattr(main_controller.view, '_filter_panel',
+                            main_window.ui_components.filter_panel)
 
             # Установка parameter_panel
             if hasattr(main_window.ui_components, 'parameter_panel'):
-                setattr(main_controller.view, '_parameter_panel',
-                        main_window.ui_components.parameter_panel)
+                if hasattr(main_controller, 'set_parameter_panel'):
+                    main_controller.set_parameter_panel(main_window.ui_components.parameter_panel)
+                else:
+                    setattr(main_controller.view, '_parameter_panel',
+                            main_window.ui_components.parameter_panel)
 
             # Установка action_panel
             if hasattr(main_window.ui_components, 'action_panel'):
-                setattr(main_controller.view, '_action_panel',
-                        main_window.ui_components.action_panel)
+                if hasattr(main_controller, 'set_action_panel'):
+                    main_controller.set_action_panel(main_window.ui_components.action_panel)
+                else:
+                    setattr(main_controller.view, '_action_panel',
+                            main_window.ui_components.action_panel)
+
+        # Добавление обработчика закрытия окна
+        def on_closing():
+            try:
+                logger.info("Закрытие приложения")
+                if hasattr(main_controller, 'save_filters'):
+                    main_controller.save_filters()
+                if hasattr(main_controller, 'cleanup'):
+                    main_controller.cleanup()
+            except Exception as e:
+                logger.error(f"Ошибка при закрытии: {e}")
+            finally:
+                root.destroy()
+
+        root.protocol("WM_DELETE_WINDOW", on_closing)
 
         return {
             'root': root,

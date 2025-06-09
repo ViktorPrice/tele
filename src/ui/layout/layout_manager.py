@@ -58,7 +58,7 @@ class LayoutManager:
             "<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
 
     def _create_component_containers(self):
-        """Создание контейнеров для различных компонентов"""
+        """Создание контейнеров для различных компонентов и их размещение в main_container"""
         # Настройка растягивания главного контейнера
         self.main_container.grid_columnconfigure(0, weight=1)
 
@@ -71,6 +71,9 @@ class LayoutManager:
             container = ttk.Frame(self.main_container)
             container.grid_columnconfigure(0, weight=1)
             self.containers[name] = container
+
+            # Размещение контейнера в главном контейнере
+            container.grid(row=i, column=0, sticky="nsew")  # ВАЖНО: размещение контейнера
 
             # Настройка растягивания для параметров и визуализации
             if name in ['parameters', 'visualization']:

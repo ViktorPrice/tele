@@ -16,6 +16,7 @@ class TimePanel(ttk.Frame):
         super().__init__(parent)
         self.controller = controller
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.info("TimePanel: __init__ вызван")
 
         # Виджеты времени
         self.from_time_entry: Optional[tk.Entry] = None
@@ -33,11 +34,13 @@ class TimePanel(ttk.Frame):
         self.is_updating = False
 
         self._setup_ui()
+        self.logger.info("TimePanel: _setup_ui завершён")
         self.logger.info("TimePanel инициализирован")
 
     def _setup_ui(self):
-        """Настройка пользовательского интерфейса"""
+        self.logger.info("TimePanel: _setup_ui вызван")
         try:
+            self.logger.info("TimePanel: создание UI секций")
             # Конфигурация сетки
             self.grid_columnconfigure(1, weight=1)
 
@@ -130,10 +133,10 @@ class TimePanel(ttk.Frame):
             ttk.Button(quick_frame, text="10 мин",
                        command=lambda: self._quick_range(600)).pack(side=tk.LEFT, padx=2, pady=2)
 
-            self.logger.info("UI TimePanel настроен")
+            self.logger.info("TimePanel: _setup_ui завершён (try)")
 
         except Exception as e:
-            self.logger.error(f"Ошибка настройки UI TimePanel: {e}")
+            self.logger.error(f"TimePanel: ошибка в _setup_ui: {e}")
 
     def _on_changed_only_toggle(self):
         """НОВЫЙ обработчик: Переключение фильтра изменяемых параметров"""

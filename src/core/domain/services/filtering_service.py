@@ -38,10 +38,23 @@ class ParameterFilteringService:
         """КРИТИЧЕСКИ ИСПРАВЛЕННАЯ фильтрация параметров"""
         import time
         start_time = time.time()
-        
+
         try:
             self._filter_stats['total_calls'] += 1
-            
+
+            # ЛОГИРОВАНИЕ: входные критерии фильтрации
+            self.logger.info(f"filter_parameters: входные критерии: {criteria}")
+            # ЛОГИРОВАНИЕ: уникальные значения по полям в параметрах
+            if parameters:
+                unique_signal_types = set(p.get('signal_type') for p in parameters if isinstance(p, dict) and 'signal_type' in p)
+                unique_lines = set(p.get('line') for p in parameters if isinstance(p, dict) and 'line' in p)
+                unique_wagons = set(p.get('wagon') for p in parameters if isinstance(p, dict) and 'wagon' in p)
+                unique_components = set(p.get('component') for p in parameters if isinstance(p, dict) and 'component' in p)
+                self.logger.info(f"filter_parameters: уникальные signal_types: {unique_signal_types}")
+                self.logger.info(f"filter_parameters: уникальные lines: {unique_lines}")
+                self.logger.info(f"filter_parameters: уникальные wagons: {unique_wagons}")
+                self.logger.info(f"filter_parameters: уникальные components: {unique_components}")
+
             # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Если критерии пустые или None, возвращаем ВСЕ параметры
             if not criteria or self._is_empty_criteria(criteria):
                 self.logger.info("Пустые критерии фильтрации, возвращаем все параметры")
@@ -136,34 +149,42 @@ class ParameterFilteringService:
     
     def _apply_sequential_filters(self, parameters: List[Any], 
                                  criteria: Dict[str, List[str]]) -> List[Any]:
-        """ИСПРАВЛЕННОЕ последовательное применение фильтров"""
+        """ИСПРАВЛЕННОЕ последовательное применение фильтров с учётом наличия уникальных значений"""
         filtered = parameters.copy()
-        
-        # Применяем фильтры в порядке селективности
+
+        # Собираем уникальные значения по всем фильтруемым полям
+        unique_signal_types = set(self._extract_signal_type(p) for p in filtered)
+        unique_lines = set(self._extract_line(p) for p in filtered)
+        unique_wagons = set(self._extract_wagon(p) for p in filtered)
+        unique_components = set(self._extract_component(p) for p in filtered)
+        unique_hardware = set(self._extract_hardware(p) for p in filtered)
+
         filter_order = [
-            ('signal_types', self._filter_by_signal_types),
-            ('wagons', self._filter_by_wagons),
-            ('lines', self._filter_by_lines),
-            ('components', self._filter_by_components),
-            ('hardware', self._filter_by_hardware),
-            ('problematic', self._filter_by_problematic_status)  # НОВЫЙ фильтр
+            ('signal_types', self._filter_by_signal_types, unique_signal_types),
+            ('wagons', self._filter_by_wagons, unique_wagons),
+            ('lines', self._filter_by_lines, unique_lines),
+            ('components', self._filter_by_components, unique_components),
+            ('hardware', self._filter_by_hardware, unique_hardware),
+            ('problematic', self._filter_by_problematic_status, None)  # Статус проблемности всегда фильтруется
         ]
-        
-        for filter_name, filter_func in filter_order:
+
+        for filter_name, filter_func, unique_values in filter_order:
+            # Не фильтруем по полю, если уникальных значений нет (или только пустое/Unknown)
             if filter_name in criteria and criteria[filter_name]:
+                if unique_values is not None:
+                    # Исключаем фильтрацию, если уникальных значений нет или только пустое/Unknown
+                    if not unique_values or unique_values in ({None}, {''}, {'Unknown'}):
+                        self.logger.info(f"Пропуск фильтра {filter_name}: нет уникальных значений в данных")
+                        continue
                 try:
                     before_count = len(filtered)
                     filtered = filter_func(filtered, criteria[filter_name])
                     after_count = len(filtered)
-                    
                     self.logger.debug(f"Фильтр {filter_name}: {before_count} -> {after_count} параметров")
-                    
-                    # НЕ делаем ранний выход если результатов нет - это может быть нормально
-                        
                 except Exception as e:
                     self.logger.error(f"Ошибка применения фильтра {filter_name}: {e}")
                     continue
-        
+
         return filtered
     
     def _filter_by_problematic_status(self, parameters: List[Any], 

@@ -15,6 +15,7 @@ class ActionPanel(ttk.Frame):
         super().__init__(parent)
         self.controller = controller
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.info("ActionPanel: __init__ вызван")
 
         # UI элементы
         self.load_btn: Optional[ttk.Button] = None
@@ -28,9 +29,11 @@ class ActionPanel(ttk.Frame):
         self.is_loading = False
 
         self._setup_ui()
+        self.logger.info("ActionPanel: _setup_ui завершён")
         self.logger.info("ActionPanel инициализирован")
 
     def _setup_ui(self):
+        self.logger.info("ActionPanel: _setup_ui вызван")
         """Настройка пользовательского интерфейса"""
         # Настройка сетки
         self.grid_columnconfigure(0, weight=1)
@@ -43,6 +46,8 @@ class ActionPanel(ttk.Frame):
 
         # 3. Статусная информация
         self._create_status_section()
+
+        self.logger.info("ActionPanel: _setup_ui завершён")
 
     def _create_load_section(self):
         """Создание секции загрузки"""
@@ -91,6 +96,15 @@ class ActionPanel(ttk.Frame):
             state=tk.DISABLED
         )
         self.sop_btn.grid(row=2, column=0, sticky="ew")
+
+        # Кнопка тестирования
+        test_btn = ttk.Button(
+            actions_frame,
+            text="🧪 Тест данных",
+            command=self._on_load_test_data,
+            style="Warning.TButton"
+        )
+        test_btn.grid(row=3, column=0, sticky="ew", pady=(0, 5))
 
     def _create_status_section(self):
         """Создание секции статуса"""
@@ -196,3 +210,11 @@ class ActionPanel(ttk.Frame):
             self.logger.info("ActionPanel очищен")
         except Exception as e:
             self.logger.error(f"Ошибка очистки ActionPanel: {e}")
+
+    def _on_load_test_data(self):
+        """Загрузка тестовых данных"""
+        try:
+            if self.controller and hasattr(self.controller, 'load_test_data'):
+                self.controller.load_test_data()
+        except Exception as e:
+            self.logger.error(f"Ошибка загрузки тестовых данных: {e}")

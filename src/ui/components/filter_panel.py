@@ -15,6 +15,7 @@ class FilterPanel(ttk.Frame):
         super().__init__(parent)
         self.controller = controller
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.info("FilterPanel: __init__ вызван")
 
         # Переменные для чекбоксов
         self.signal_vars = {}
@@ -30,11 +31,13 @@ class FilterPanel(ttk.Frame):
         self.changed_only_checkbox = None
 
         self._setup_ui()
+        self.logger.info("FilterPanel: _setup_ui завершён")
         self.logger.info("FilterPanel инициализирован")
 
     def _setup_ui(self):
-        """Настройка пользовательского интерфейса"""
+        self.logger.info("FilterPanel: _setup_ui вызван")
         try:
+            self.logger.info("FilterPanel: создание UI секций")
             self.grid_columnconfigure(0, weight=1)
 
             # Заголовок
@@ -56,51 +59,18 @@ class FilterPanel(ttk.Frame):
             )
             self.changed_only_checkbox.grid(row=0, column=0, sticky="w")
 
-            # Фильтры типов сигналов
-            self._create_signal_type_filters()
+            # Динамические фильтры типов сигналов и компонентов будут создаваться после загрузки данных
 
             # Фильтры линий
             self._create_line_filters()
 
-            # Фильтры вагонов
-            self._create_wagon_filters()
-
-            # Дополнительные фильтры
-            self._create_additional_filters()
-
             # Кнопки управления
             self._create_control_buttons()
 
-            self.logger.info("UI FilterPanel настроен")
-
+            self.logger.info("FilterPanel: создание UI секций завершено")
+            self.logger.info("FilterPanel: _setup_ui завершён (try)")
         except Exception as e:
-            self.logger.error(f"Ошибка настройки UI FilterPanel: {e}")
-
-    def _create_signal_type_filters(self):
-        """Создание фильтров типов сигналов"""
-        try:
-            signal_frame = ttk.LabelFrame(
-                self, text="Типы сигналов", padding="5")
-            signal_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=2)
-
-            signal_types = ['B', 'BY', 'W', 'DW', 'F', 'WF']
-
-            for i, signal_type in enumerate(signal_types):
-                var = tk.BooleanVar()
-                var.set(True)  # По умолчанию все включены
-                self.signal_vars[signal_type] = var
-
-                checkbox = ttk.Checkbutton(
-                    signal_frame,
-                    text=signal_type,
-                    variable=var,
-                    command=self._on_filter_changed
-                )
-                checkbox.grid(row=i//3, column=i %
-                              3, sticky="w", padx=5, pady=2)
-
-        except Exception as e:
-            self.logger.error(f"Ошибка создания фильтров типов сигналов: {e}")
+            self.logger.error(f"FilterPanel: ошибка в _setup_ui: {e}")
 
     def _create_line_filters(self):
         """Создание фильтров линий"""
@@ -128,56 +98,30 @@ class FilterPanel(ttk.Frame):
         except Exception as e:
             self.logger.error(f"Ошибка создания фильтров линий: {e}")
 
-    def _create_wagon_filters(self):
-        """Создание фильтров вагонов"""
+    def update_wagon_checkboxes(self, wagons: List[str]):
+        """Динамическое обновление чекбоксов вагонов по уникальным значениям из данных"""
         try:
-            wagon_frame = ttk.LabelFrame(
-                self, text="Номера вагонов", padding="5")
-            wagon_frame.grid(row=4, column=0, sticky="ew", padx=5, pady=2)
-
-            for i in range(1, 16):  # Вагоны 1-15
-                var = tk.BooleanVar()
-                var.set(True)  # По умолчанию все включены
-                self.wagon_vars[str(i)] = var
-
-                checkbox = ttk.Checkbutton(
-                    wagon_frame,
-                    text=str(i),
-                    variable=var,
-                    command=self._on_filter_changed
-                )
-                checkbox.grid(row=i//8, column=i %
-                              8, sticky="w", padx=3, pady=1)
-
-        except Exception as e:
-            self.logger.error(f"Ошибка создания фильтров вагонов: {e}")
-
-    def _create_additional_filters(self):
-        """Создание дополнительных фильтров"""
-        try:
-            # Фрейм для компонентов
-            component_frame = ttk.LabelFrame(
-                self, text="Компоненты", padding="5")
-            component_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=2)
-
-            components = ['DOOR', 'BRAKE', 'HVAC', 'TRACTION', 'SAFETY', 'AUX']
-
-            for i, component in enumerate(components):
+            if not hasattr(self, 'wagon_frame'):
+                self.wagon_frame = ttk.LabelFrame(self, text="Номера вагонов", padding="5")
+                self.wagon_frame.grid(row=4, column=0, sticky="ew", padx=5, pady=2)
+            frame = self.wagon_frame
+            for widget in frame.winfo_children():
+                widget.destroy()
+            self.wagon_vars.clear()
+            for i, wagon in enumerate(sorted(wagons, key=lambda x: int(x) if x.isdigit() else x)):
                 var = tk.BooleanVar()
                 var.set(True)
-                self.component_vars[component] = var
-
+                self.wagon_vars[wagon] = var
                 checkbox = ttk.Checkbutton(
-                    component_frame,
-                    text=component,
+                    frame,
+                    text=wagon,
                     variable=var,
                     command=self._on_filter_changed
                 )
-                checkbox.grid(row=i//3, column=i %
-                              3, sticky="w", padx=5, pady=2)
-
+                checkbox.grid(row=i//8, column=i % 8, sticky="w", padx=3, pady=1)
+            self.logger.info(f"Обновлены чекбоксы вагонов: {len(wagons)} вагонов")
         except Exception as e:
-            self.logger.error(f"Ошибка создания дополнительных фильтров: {e}")
+            self.logger.error(f"Ошибка обновления чекбоксов вагонов: {e}")
 
     def _create_control_buttons(self):
         """Создание кнопок управления"""
@@ -265,17 +209,75 @@ class FilterPanel(ttk.Frame):
         except Exception as e:
             self.logger.error(f"Ошибка обновления чекбоксов линий: {e}")
 
-    def get_selected_filters(self) -> Dict[str, Any]:
-        """ОБНОВЛЕННЫЙ метод: Получение выбранных фильтров"""
+    def update_signal_type_checkboxes(self, signal_types: List[str]):
+        """Динамическое обновление чекбоксов типов сигналов по уникальным значениям из данных"""
         try:
-            return {
-                'signal_types': [k for k, v in self.signal_vars.items() if v.get()],
-                'lines': [k for k, v in self.line_vars.items() if v.get()],
-                'wagons': [k for k, v in self.wagon_vars.items() if v.get()],
-                'components': [k for k, v in self.component_vars.items() if v.get()],
-                'hardware': [k for k, v in self.hardware_vars.items() if v.get()],
-                'changed_only': self.changed_only_var.get()  # НОВОЕ поле
-            }
+            # Найти/создать фрейм для чекбоксов типов сигналов
+            if not hasattr(self, 'signal_type_frame'):
+                self.signal_type_frame = ttk.LabelFrame(self, text="Типы сигналов", padding="5")
+                self.signal_type_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=2)
+            frame = self.signal_type_frame
+            # Очистить старые чекбоксы
+            for widget in frame.winfo_children():
+                widget.destroy()
+            self.signal_vars.clear()
+            # Создать новые чекбоксы только по реально найденным типам
+            for i, signal_type in enumerate(sorted(signal_types)):
+                var = tk.BooleanVar()
+                var.set(True)
+                self.signal_vars[signal_type] = var
+                checkbox = ttk.Checkbutton(
+                    frame,
+                    text=signal_type,
+                    variable=var,
+                    command=self._on_filter_changed
+                )
+                checkbox.grid(row=i//3, column=i % 3, sticky="w", padx=5, pady=2)
+            self.logger.info(f"Обновлены чекбоксы типов сигналов: {len(signal_types)} типов")
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления чекбоксов типов сигналов: {e}")
+
+    def update_component_checkboxes(self, components: List[str]):
+        """Динамическое обновление чекбоксов компонентов по уникальным значениям из данных"""
+        try:
+            if not hasattr(self, 'component_frame'):
+                self.component_frame = ttk.LabelFrame(self, text="Компоненты", padding="5")
+                self.component_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=2)
+            frame = self.component_frame
+            for widget in frame.winfo_children():
+                widget.destroy()
+            self.component_vars.clear()
+            for i, component in enumerate(sorted(components)):
+                var = tk.BooleanVar()
+                var.set(True)
+                self.component_vars[component] = var
+                checkbox = ttk.Checkbutton(
+                    frame,
+                    text=component,
+                    variable=var,
+                    command=self._on_filter_changed
+                )
+                checkbox.grid(row=i//3, column=i % 3, sticky="w", padx=5, pady=2)
+            self.logger.info(f"Обновлены чекбоксы компонентов: {len(components)} компонентов")
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления чекбоксов компонентов: {e}")
+
+    def get_selected_filters(self) -> Dict[str, Any]:
+        """ОБНОВЛЕННЫЙ метод: Получение выбранных фильтров без несуществующих полей"""
+        try:
+            filters = {}
+            if self.signal_vars:
+                filters['signal_types'] = [k for k, v in self.signal_vars.items() if v.get()]
+            if self.line_vars:
+                filters['lines'] = [k for k, v in self.line_vars.items() if v.get()]
+            if self.wagon_vars:
+                filters['wagons'] = [k for k, v in self.wagon_vars.items() if v.get()]
+            if self.component_vars:
+                filters['components'] = [k for k, v in self.component_vars.items() if v.get()]
+            if self.hardware_vars:
+                filters['hardware'] = [k for k, v in self.hardware_vars.items() if v.get()]
+            filters['changed_only'] = self.changed_only_var.get()  # НОВОЕ поле
+            return filters
         except Exception as e:
             self.logger.error(f"Ошибка получения фильтров: {e}")
             return {'changed_only': False}

@@ -1,20 +1,33 @@
+# src/ui/controllers/main_controller.py - ИСЧЕРПЫВАЮЩЕ ПОЛНАЯ ВЕРСИЯ
 """
-Интеграция Use Cases в MainController
+Главный контроллер приложения с полной интеграцией Use Cases и UI компонентов
 """
-
 import logging
-from typing import Dict, List, Any, Optional, Tuple
-from datetime import datetime
+from typing import Dict, List, Any, Optional, Tuple, Callable
+from datetime import datetime, timedelta
+import time
+import threading
+from pathlib import Path
 
-from ...core.application.use_cases.filter_parameters_use_case import (
-    FilterParametersUseCase, FilterParametersRequest, FindChangedParametersUseCase,
-    FindChangedParametersRequest, TimeRangeInitUseCase, TimeRangeInitRequest
-)
-from ...core.application.dto.filter_dto import FilterDTO
-
+# Импорты Use Cases
+try:
+    from ...core.application.use_cases.filter_parameters_use_case import (
+        FilterParametersUseCase, FilterParametersRequest
+    )
+    from ...core.application.use_cases.find_changed_parameters_use_case import (
+        FindChangedParametersUseCase, FindChangedParametersRequest
+    )
+    from ...core.application.use_cases.time_range_init_use_case import (
+        TimeRangeInitUseCase, TimeRangeInitRequest
+    )
+    from ...core.application.dto.filter_dto import FilterDTO
+    USE_CASES_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"Use Cases не доступны: {e}")
+    USE_CASES_AVAILABLE = False
 
 class MainController:
-    """Главный контроллер приложения (ИСПРАВЛЕННАЯ ВЕРСИЯ)"""
+    """Главный контроллер приложения (ПОЛНАЯ ИНТЕГРАЦИЯ)"""
 
     def __init__(self, model, view):
         self.model = model
@@ -27,55 +40,44 @@ class MainController:
         self.report_generator = None
         self.sop_manager = None
 
-        # UI компоненты (внедряются извне)
-        self.time_panel = None
-        self.ui_components = None
-
-        # Use Cases
+        # Use Cases (если доступны)
         self.filter_parameters_use_case: Optional[FilterParametersUseCase] = None
         self.find_changed_params_use_case: Optional[FindChangedParametersUseCase] = None
         self.time_range_init_use_case: Optional[TimeRangeInitUseCase] = None
 
         # Кэш для оптимизации
-        self._filter_criteria_cache: Optional[Dict[str, List[str]]] = None
+        self._filter_criteria_cache: Optional[Dict[str, Any]] = None
         self._last_filter_update = 0
+        self._ui_update_cache: Dict[str, Any] = {}
+        self._last_ui_update = 0
 
         # Состояние
         self.is_processing = False
+        self.is_loading = False
+        self.current_file_path: Optional[str] = None
 
+        # Callbacks для UI событий
+        self._ui_callbacks: Dict[str, List[Callable]] = {
+            'data_loaded': [],
+            'parameters_updated': [],
+            'filters_applied': [],
+            'time_changed': []
+        }
+
+        # Инициализация
         self._setup_use_cases()
+        self._setup_ui_integration()
 
-        self.logger.info("Контроллер инициализирован")
-
-    # Добавлены методы для внедрения сервисов
-    def set_filtering_service(self, service):
-        self.filtering_service = service
-        self.logger.info("Фильтрационный сервис установлен")
-
-    def set_plot_manager(self, service):
-        self.plot_manager = service
-        self.logger.info("PlotManager установлен")
-
-    def set_report_manager(self, service):
-        self.report_generator = service
-        self.logger.info("ReportManager установлен")
-
-    def set_sop_manager(self, service):
-        self.sop_manager = service
-        self.logger.info("SOPManager установлен")
-
-    # Добавлены методы для внедрения UI компонентов
-    def set_time_panel(self, time_panel):
-        self.time_panel = time_panel
-        self.logger.info("TimePanel установлен")
-
-    def set_ui_components(self, ui_components):
-        self.ui_components = ui_components
-        self.logger.info("UIComponents установлен")
+        self.logger.info("MainController инициализирован")
 
     def _setup_use_cases(self):
         """Настройка Use Cases"""
+        if not USE_CASES_AVAILABLE:
+            self.logger.warning("Use Cases недоступны, используется fallback режим")
+            return
+
         try:
+            # Инициализация Use Cases если модель поддерживает
             if hasattr(self.model, 'parameter_repository') and hasattr(self.model, 'filtering_service'):
                 self.filter_parameters_use_case = FilterParametersUseCase(
                     self.model.parameter_repository,
@@ -90,57 +92,581 @@ class MainController:
                     self.model.data_model
                 )
 
-            self.logger.info("Use Cases инициализированы в контроллере")
+            self.logger.info("Use Cases инициализированы")
 
         except Exception as e:
             self.logger.error(f"Ошибка инициализации Use Cases: {e}")
 
+    def _setup_ui_integration(self):
+        """Настройка интеграции с UI"""
+        try:
+            # Устанавливаем обратные связи с view
+            if hasattr(self.view, 'set_controller'):
+                # view уже знает о контроллере, но убеждаемся в двусторонней связи
+                pass
+
+            self.logger.debug("UI интеграция настроена")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка настройки UI интеграции: {e}")
+
+    # === МЕТОДЫ ДЛЯ ВНЕДРЕНИЯ СЕРВИСОВ ===
+
+    def set_filtering_service(self, service):
+        """Установка сервиса фильтрации"""
+        self.filtering_service = service
+        self.logger.info("Фильтрационный сервис установлен")
+
+    def set_plot_manager(self, service):
+        """Установка менеджера графиков"""
+        self.plot_manager = service
+        self.logger.info("PlotManager установлен")
+
+    def set_report_generator(self, service):
+        """Установка генератора отчетов"""
+        self.report_generator = service
+        self.logger.info("ReportGenerator установлен")
+
+    def set_ui_components(self, ui_components):
+        """Установка UI компонентов"""
+        self.ui_components = ui_components
+        self.logger.info("UIComponents установлен в контроллере")
+
+    def set_view(self, view):
+        """Установка view (для обратной совместимости)"""
+        self.view = view
+        self.logger.info("View установлен в контроллере")
+
+    def save_filters(self):
+        """Сохранение текущих фильтров"""
+        try:
+            # Получаем текущие критерии фильтрации
+            criteria = self._get_filter_criteria()
+            
+            # Сохраняем в файл настроек (простая реализация)
+            import json
+            from pathlib import Path
+            
+            settings_file = Path.home() / '.tramm_filters.json'
+            with open(settings_file, 'w', encoding='utf-8') as f:
+                json.dump(criteria, f, indent=2, ensure_ascii=False)
+            
+            self.logger.info(f"Фильтры сохранены в {settings_file}")
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка сохранения фильтров: {e}")
+
+    def _get_selected_parameters(self) -> List[Dict[str, Any]]:
+        """Получение выбранных параметров (расширенная версия)"""
+        try:
+            # Способ 1: Через ui_components (если установлен через set_ui_components)
+            if (hasattr(self, 'ui_components') and 
+                self.ui_components and 
+                hasattr(self.ui_components, 'parameter_panel')):
+                
+                parameter_panel = self.ui_components.parameter_panel
+                if hasattr(parameter_panel, 'get_selected_parameters'):
+                    selected = parameter_panel.get_selected_parameters()
+                    self.logger.debug(f"Получено выбранных параметров через ui_components: {len(selected)}")
+                    return selected
+
+            # Способ 2: Через view.ui_components
+            if (hasattr(self.view, 'ui_components') and 
+                self.view.ui_components and 
+                hasattr(self.view.ui_components, 'parameter_panel')):
+                
+                parameter_panel = self.view.ui_components.parameter_panel
+                if hasattr(parameter_panel, 'get_selected_parameters'):
+                    selected = parameter_panel.get_selected_parameters()
+                    self.logger.debug(f"Получено выбранных параметров через view: {len(selected)}")
+                    return selected
+
+            # Способ 3: Прямой доступ через view.parameter_panel
+            if hasattr(self.view, 'parameter_panel') and self.view.parameter_panel:
+                parameter_panel = self.view.parameter_panel
+                if hasattr(parameter_panel, 'get_selected_parameters'):
+                    selected = parameter_panel.get_selected_parameters()
+                    self.logger.debug(f"Получено выбранных параметров напрямую: {len(selected)}")
+                    return selected
+
+            self.logger.warning("Не найден способ получения выбранных параметров")
+            return []
+
+        except Exception as e:
+            self.logger.error(f"Ошибка получения выбранных параметров: {e}")
+            return []
+
+    def set_sop_manager(self, service):
+        """Установка менеджера SOP"""
+        self.sop_manager = service
+        self.logger.info("SOPManager установлен")
+
+    # === МЕТОДЫ ЗАГРУЗКИ ДАННЫХ ===
+
+    def upload_csv(self):
+        """ИСПРАВЛЕННАЯ загрузка CSV файла"""
+        try:
+            from tkinter import filedialog
+            
+            file_path = filedialog.askopenfilename(
+                title="Выберите CSV файл",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+            )
+
+            if file_path:
+                self.logger.info(f"Выбран файл: {file_path}")
+                
+                # Показываем процесс загрузки
+                self._start_loading("Загрузка файла...")
+
+                # Загружаем файл в отдельном потоке для UI отзывчивости
+                def load_file():
+                    try:
+                        success = self._load_csv_file(file_path)
+                        
+                        # Выполняем UI обновления в главном потоке
+                        if hasattr(self.view, 'root'):
+                            self.view.root.after(0, lambda: self._handle_file_load_result(success, file_path))
+                    except Exception as e:
+                        self.logger.error(f"Ошибка в потоке загрузки: {e}")
+                        if hasattr(self.view, 'root'):
+                            self.view.root.after(0, lambda: self._handle_file_load_error(e))
+
+                # Запускаем загрузку в отдельном потоке
+                thread = threading.Thread(target=load_file, daemon=True)
+                thread.start()
+
+        except Exception as e:
+            self.logger.error(f"Ошибка загрузки CSV: {e}")
+            self._stop_loading()
+            if hasattr(self.view, 'show_error'):
+                self.view.show_error(f"Ошибка загрузки: {e}")
+
+    def _load_csv_file(self, file_path: str) -> bool:
+        """Загрузка CSV файла через модель"""
+        try:
+            if hasattr(self.model, 'load_csv_file'):
+                return self.model.load_csv_file(file_path)
+            elif hasattr(self.model, 'data_loader') and hasattr(self.model.data_loader, 'load_csv'):
+                return self.model.data_loader.load_csv(file_path)
+            else:
+                self.logger.error("Метод загрузки CSV не найден в модели")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"Ошибка в _load_csv_file: {e}")
+            return False
+
+    def _handle_file_load_result(self, success: bool, file_path: str):
+        """Обработка результата загрузки файла"""
+        try:
+            if success:
+                self.current_file_path = file_path
+                self.logger.info("Файл успешно загружен")
+                
+                # Обработка успешной загрузки
+                self._on_file_loaded(file_path)
+                
+                # Уведомляем UI об успехе
+                if hasattr(self.view, 'update_status'):
+                    file_name = Path(file_path).name
+                    self.view.update_status(f"Файл загружен: {file_name}")
+                
+            else:
+                self.logger.error("Ошибка загрузки файла")
+                if hasattr(self.view, 'show_error'):
+                    self.view.show_error("Ошибка загрузки файла")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка обработки результата загрузки: {e}")
+        finally:
+            self._stop_loading()
+
+    def _handle_file_load_error(self, error: Exception):
+        """Обработка ошибки загрузки файла"""
+        try:
+            if hasattr(self.view, 'show_error'):
+                self.view.show_error(f"Ошибка загрузки файла: {error}")
+        except Exception as e:
+            self.logger.error(f"Ошибка обработки ошибки загрузки: {e}")
+        finally:
+            self._stop_loading()
+
     def _on_file_loaded(self, file_path: str):
-        """ОБНОВЛЕННАЯ обработка загрузки файла с Use Cases"""
+        """КРИТИЧНО ИСПРАВЛЕННАЯ обработка загрузки файла"""
         try:
             self.logger.info("=== НАЧАЛО ОБРАБОТКИ ЗАГРУЖЕННОГО ФАЙЛА ===")
 
-            # ШАГ 1: Инициализация временного диапазона через Use Case
-            if self.time_range_init_use_case:
-                time_request = TimeRangeInitRequest(
-                    session_id="current_session")
-                time_response = self.time_range_init_use_case.execute(
-                    time_request)
+            # ШАГ 1: Инициализация временного диапазона
+            self._initialize_time_range_from_data()
 
-                if time_response.success:
-                    time_fields = {
-                        'from_time': time_response.from_time,
-                        'to_time': time_response.to_time,
-                        'duration': time_response.duration,
-                        'total_records': time_response.total_records
-                    }
-
-                    success = self._update_time_panel_fields(time_fields)
-                    if success:
-                        self.logger.info(
-                            f"✅ UI поля времени обновлены через Use Case: {time_response.from_time} - {time_response.to_time}")
-                    else:
-                        self.logger.error(
-                            "❌ Не удалось обновить поля времени в UI")
-                else:
-                    self.logger.warning(
-                        f"⚠️ Ошибка инициализации времени: {time_response.message}")
-
-            # ШАГ 2: Обработка параметров через существующую логику
+            # ШАГ 2: Обработка параметров
             self._handle_successful_load()
 
-            self.logger.info("=== ОБРАБОТКА ФАЙЛА ЗАВЕРШЕНА ===")
+            # ШАГ 3: Уведомление callbacks
+            self._emit_event('data_loaded', {'file_path': file_path})
+
+            self.logger.info("=== ОБРАБОТКА ФАЙЛА ЗАВЕРШЕНА УСПЕШНО ===")
 
         except Exception as e:
             self.logger.error(f"Ошибка обработки загруженного файла: {e}")
             import traceback
             traceback.print_exc()
 
-    def apply_filters(self, changed_only: bool = False):
-        """ОБНОВЛЕННОЕ применение фильтров через Use Cases"""
+    def _initialize_time_range_from_data(self):
+        """Инициализация временного диапазона из загруженных данных"""
         try:
-            self.logger.info(
-                f"Начало применения фильтров через Use Cases (changed_only={changed_only})")
+            time_fields = None
+
+            # Способ 1: Через Use Case (если доступен)
+            if self.time_range_init_use_case:
+                try:
+                    time_request = TimeRangeInitRequest(session_id="current_session")
+                    time_response = self.time_range_init_use_case.execute(time_request)
+                    
+                    if time_response.success:
+                        time_fields = {
+                            'from_time': time_response.from_time,
+                            'to_time': time_response.to_time,
+                            'duration': time_response.duration,
+                            'total_records': time_response.total_records
+                        }
+                        self.logger.info("Временной диапазон получен через Use Case")
+                except Exception as e:
+                    self.logger.warning(f"Ошибка Use Case для времени: {e}")
+
+            # Способ 2: Через модель (fallback)
+            if not time_fields:
+                time_fields = self._get_time_fields_from_model()
+
+            # Способ 3: Через data_loader (fallback)
+            if not time_fields:
+                time_fields = self._get_time_fields_from_data_loader()
+
+            # Обновляем UI
+            if time_fields and time_fields.get('from_time') and time_fields.get('to_time'):
+                success = self._update_time_panel_fields(time_fields)
+                if success:
+                    self.logger.info(f"✅ Временной диапазон обновлен: {time_fields['from_time']} - {time_fields['to_time']}")
+                else:
+                    self.logger.error("❌ Не удалось обновить временной диапазон в UI")
+            else:
+                self.logger.warning("⚠️ Временной диапазон не получен")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка инициализации временного диапазона: {e}")
+
+    def _get_time_fields_from_model(self) -> Optional[Dict[str, Any]]:
+        """Получение временных полей из модели"""
+        try:
+            if hasattr(self.model, 'get_time_range_fields'):
+                return self.model.get_time_range_fields()
+            elif hasattr(self.model, '_time_range_fields'):
+                return self.model._time_range_fields
+            return None
+        except Exception as e:
+            self.logger.error(f"Ошибка получения времени из модели: {e}")
+            return None
+
+    def _get_time_fields_from_data_loader(self) -> Optional[Dict[str, Any]]:
+        """Получение временных полей из data_loader"""
+        try:
+            if (hasattr(self.model, 'data_loader') and 
+                self.model.data_loader and 
+                hasattr(self.model.data_loader, 'min_timestamp') and 
+                hasattr(self.model.data_loader, 'max_timestamp')):
+                
+                return {
+                    'from_time': self.model.data_loader.min_timestamp,
+                    'to_time': self.model.data_loader.max_timestamp,
+                    'duration': self._calculate_duration(
+                        self.model.data_loader.min_timestamp,
+                        self.model.data_loader.max_timestamp
+                    ),
+                    'total_records': getattr(self.model.data_loader, 'records_count', 0)
+                }
+            return None
+        except Exception as e:
+            self.logger.error(f"Ошибка получения времени из data_loader: {e}")
+            return None
+
+    def _calculate_duration(self, from_time_str: str, to_time_str: str) -> str:
+        """Вычисление длительности"""
+        try:
+            from_time = datetime.strptime(from_time_str, '%Y-%m-%d %H:%M:%S')
+            to_time = datetime.strptime(to_time_str, '%Y-%m-%d %H:%M:%S')
+            duration = to_time - from_time
+            
+            days = duration.days
+            hours, remainder = divmod(duration.seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            
+            if days > 0:
+                return f"{days} дн. {hours:02d}:{minutes:02d}:{seconds:02d}"
+            else:
+                return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        except Exception:
+            return "Неизвестно"
+
+    def _update_time_panel_fields(self, time_fields: Dict[str, Any]) -> bool:
+        """КРИТИЧНО ИСПРАВЛЕННОЕ обновление полей времени в UI"""
+        try:
+            self.logger.info(f"Попытка обновления полей времени: {time_fields}")
+
+            # МНОЖЕСТВЕННЫЕ СПОСОБЫ ПОИСКА time_panel
+            time_panel = None
+            search_paths = []
+
+            # Способ 1: Через ui_components
+            if (hasattr(self.view, 'ui_components') and 
+                self.view.ui_components and 
+                hasattr(self.view.ui_components, 'time_panel')):
+                time_panel = self.view.ui_components.time_panel
+                search_paths.append("ui_components.time_panel ✅")
+            else:
+                search_paths.append("ui_components.time_panel ❌")
+
+            # Способ 2: Прямой доступ через view
+            if not time_panel and hasattr(self.view, 'time_panel'):
+                time_panel = self.view.time_panel
+                search_paths.append("view.time_panel ✅")
+            else:
+                search_paths.append("view.time_panel ❌")
+
+            # Способ 3: Через get_component
+            if not time_panel and hasattr(self.view, 'get_component'):
+                time_panel = self.view.get_component('time_panel')
+                if time_panel:
+                    search_paths.append("get_component('time_panel') ✅")
+                else:
+                    search_paths.append("get_component('time_panel') ❌")
+
+            # Способ 4: Поиск в атрибутах view
+            if not time_panel:
+                time_panel = self._find_time_panel_in_view()
+                if time_panel:
+                    search_paths.append("_find_time_panel_in_view() ✅")
+                else:
+                    search_paths.append("_find_time_panel_in_view() ❌")
+
+            self.logger.info(f"Поиск time_panel: {' | '.join(search_paths)}")
+
+            # ПОПЫТКА ОБНОВЛЕНИЯ
+            if time_panel:
+                self.logger.info(f"time_panel найден: {type(time_panel)}")
+
+                # Проверяем наличие метода update_time_fields
+                if hasattr(time_panel, 'update_time_fields'):
+                    self.logger.info("Вызов time_panel.update_time_fields...")
+                    time_panel.update_time_fields(
+                        from_time=time_fields['from_time'],
+                        to_time=time_fields['to_time'],
+                        duration=time_fields.get('duration', ''),
+                        total_records=time_fields.get('total_records', 0)
+                    )
+                    self.logger.info("✅ time_panel.update_time_fields выполнен успешно")
+                    return True
+                else:
+                    available_methods = [m for m in dir(time_panel) if not m.startswith('_')]
+                    self.logger.error(f"❌ time_panel не имеет метода update_time_fields. Доступные методы: {available_methods}")
+                    return False
+            else:
+                self.logger.error("❌ time_panel НЕ НАЙДЕН во всех попытках поиска")
+                self._diagnose_view_structure()
+                return False
+
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления полей времени: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def _find_time_panel_in_view(self):
+        """Поиск time_panel в атрибутах view"""
+        try:
+            if hasattr(self.view, '__dict__'):
+                for attr_name, attr_value in self.view.__dict__.items():
+                    if ('time' in attr_name.lower() and 
+                        hasattr(attr_value, 'update_time_fields')):
+                        self.logger.info(f"Найден time_panel через атрибут: {attr_name}")
+                        return attr_value
+            return None
+        except Exception as e:
+            self.logger.error(f"Ошибка поиска time_panel: {e}")
+            return None
+
+    def _diagnose_view_structure(self):
+        """ДИАГНОСТИКА структуры view"""
+        try:
+            self.logger.info("=== ДИАГНОСТИКА СТРУКТУРЫ VIEW ===")
+            
+            if hasattr(self.view, '__dict__'):
+                view_attrs = list(self.view.__dict__.keys())
+                self.logger.info(f"Атрибуты view: {view_attrs}")
+
+                # Ищем атрибуты связанные со временем
+                time_related = [attr for attr in view_attrs if 'time' in attr.lower()]
+                if time_related:
+                    self.logger.info(f"Атрибуты связанные со временем: {time_related}")
+
+                # Ищем UI компоненты
+                ui_related = [attr for attr in view_attrs if any(keyword in attr.lower() 
+                             for keyword in ['ui', 'component', 'panel'])]
+                if ui_related:
+                    self.logger.info(f"UI атрибуты: {ui_related}")
+
+            # Проверяем ui_components детально
+            if hasattr(self.view, 'ui_components'):
+                self.logger.info("ui_components найден")
+                if hasattr(self.view.ui_components, '__dict__'):
+                    ui_attrs = list(self.view.ui_components.__dict__.keys())
+                    self.logger.info(f"Атрибуты ui_components: {ui_attrs}")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка диагностики: {e}")
+
+    def _handle_successful_load(self):
+        """ИСПРАВЛЕННАЯ обработка успешной загрузки"""
+        try:
+            if self._has_data():
+                params = self.model.data_loader.parameters
+                self.logger.info(f"Загружено параметров: {len(params)}")
+
+                # Очищаем кэш фильтров
+                self._filter_criteria_cache = None
+
+                # КРИТИЧНО: Обновляем параметры в UI
+                cleaned_params = self._clean_parameter_descriptions(params)
+                self._update_parameters_in_ui(cleaned_params)
+
+                # Обновляем фильтры
+                self._update_filters_in_ui()
+
+                # Применяем начальные фильтры
+                self.apply_filters()
+
+                # Уведомляем о загрузке параметров
+                self._emit_event('parameters_updated', {'count': len(params)})
+
+                self.logger.info("✅ Обработка успешной загрузки завершена")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка обработки успешной загрузки: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _update_parameters_in_ui(self, parameters: List[Dict[str, Any]]):
+        """УНИВЕРСАЛЬНОЕ обновление параметров в UI"""
+        try:
+            self.logger.info(f"Обновление {len(parameters)} параметров в UI")
+
+            # Способ 1: Через ui_components (предпочтительный)
+            if (hasattr(self.view, 'ui_components') and 
+                self.view.ui_components and 
+                hasattr(self.view.ui_components, 'parameter_panel')):
+                
+                parameter_panel = self.view.ui_components.parameter_panel
+                if hasattr(parameter_panel, 'update_parameters'):
+                    parameter_panel.update_parameters(parameters)
+                    self.logger.info("✅ Параметры обновлены через ui_components.parameter_panel.update_parameters")
+                    return
+                elif hasattr(parameter_panel, 'update_tree_all_params'):
+                    parameter_panel.update_tree_all_params(parameters)
+                    self.logger.info("✅ Параметры обновлены через ui_components.parameter_panel.update_tree_all_params")
+                    return
+
+            # Способ 2: Через прямой доступ к view
+            if hasattr(self.view, 'update_tree_all_params'):
+                self.view.update_tree_all_params(parameters)
+                self.logger.info("✅ Параметры обновлены через view.update_tree_all_params")
+                return
+
+            # Способ 3: Через parameter_panel напрямую
+            if hasattr(self.view, 'parameter_panel') and self.view.parameter_panel:
+                parameter_panel = self.view.parameter_panel
+                if hasattr(parameter_panel, 'update_parameters'):
+                    parameter_panel.update_parameters(parameters)
+                    self.logger.info("✅ Параметры обновлены через view.parameter_panel.update_parameters")
+                    return
+
+            self.logger.error("❌ Не найден способ обновления параметров в UI")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления параметров в UI: {e}")
+
+    def _update_filters_in_ui(self):
+        """Обновление фильтров в UI"""
+        try:
+            if not hasattr(self.model, 'data_loader') or not self.model.data_loader:
+                return
+
+            # Обновляем линии связи
+            if hasattr(self.model.data_loader, 'lines'):
+                lines = list(self.model.data_loader.lines)
+                
+                # Способ 1: Через ui_components
+                if (hasattr(self.view, 'ui_components') and 
+                    self.view.ui_components and 
+                    hasattr(self.view.ui_components, 'filter_panel')):
+                    
+                    filter_panel = self.view.ui_components.filter_panel
+                    if hasattr(filter_panel, 'update_line_checkboxes'):
+                        filter_panel.update_line_checkboxes(lines)
+                        self.logger.info(f"✅ Обновлены линии в фильтрах: {len(lines)} элементов")
+                        return
+
+                # Способ 2: Через прямой доступ
+                if hasattr(self.view, 'update_line_checkboxes'):
+                    self.view.update_line_checkboxes(lines)
+                    self.logger.info(f"✅ Обновлены линии через view: {len(lines)} элементов")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления фильтров: {e}")
+
+    def _clean_parameter_descriptions(self, params: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Очистка описаний параметров от артефактов"""
+        try:
+            cleaned_params = []
+
+            for param in params:
+                if isinstance(param, dict):
+                    # Создаем копию параметра
+                    clean_param = param.copy()
+
+                    # Очищаем описание
+                    description = clean_param.get('description', '')
+                    if description:
+                        # Удаляем артефакты "|0", "|", пустые строки
+                        description = description.replace('|0', '').replace('|', '').strip()
+
+                        # Удаляем множественные пробелы
+                        import re
+                        description = re.sub(r'\s+', ' ', description).strip()
+
+                        # Если описание стало пустым, генерируем из signal_code
+                        if not description and clean_param.get('signal_code'):
+                            signal_code = clean_param['signal_code']
+                            description = signal_code.replace('_', ' ').title()
+
+                        clean_param['description'] = description
+
+                    cleaned_params.append(clean_param)
+                else:
+                    cleaned_params.append(param)
+
+            self.logger.debug(f"Очищены описания {len(cleaned_params)} параметров")
+            return cleaned_params
+
+        except Exception as e:
+            self.logger.error(f"Ошибка очистки описаний параметров: {e}")
+            return params
+
+    # === МЕТОДЫ ФИЛЬТРАЦИИ ===
+
+    def apply_filters(self, changed_only: bool = False):
+        """ОБНОВЛЕННОЕ применение фильтров с поддержкой Use Cases"""
+        try:
+            self.logger.info(f"Начало применения фильтров (changed_only={changed_only})")
 
             if self.is_processing:
                 self.logger.warning("Фильтрация уже выполняется, пропускаем")
@@ -151,17 +677,15 @@ class MainController:
             try:
                 # Проверяем наличие данных
                 if not self._has_data():
-                    self.logger.warning(
-                        "Нет параметров для фильтрации. Загрузите CSV файл.")
+                    self.logger.warning("Нет параметров для фильтрации. Загрузите CSV файл.")
                     self._show_no_data_message()
                     return
 
+                # Специальная обработка для "только изменяемые параметры"
                 if changed_only:
-                    # Используем Use Case для поиска изменяемых параметров
-                    self._apply_changed_params_filter_with_use_case()
+                    self._apply_changed_params_filter()
                 else:
-                    # Используем Use Case для обычной фильтрации
-                    self._apply_standard_filters_with_use_case()
+                    self._apply_standard_filters()
 
             finally:
                 self.is_processing = False
@@ -170,8 +694,8 @@ class MainController:
             self.logger.error(f"Ошибка применения фильтров: {e}")
             self.is_processing = False
 
-    def _apply_changed_params_filter_with_use_case(self):
-        """Применение фильтра изменяемых параметров через Use Case"""
+    def _apply_changed_params_filter(self):
+        """Применение фильтра изменяемых параметров"""
         try:
             # Получаем временной диапазон
             start_time_str, end_time_str = self._get_time_range()
@@ -181,43 +705,81 @@ class MainController:
                 self._show_time_error()
                 return
 
-            # Используем Use Case
+            # Используем Use Case если доступен
             if self.find_changed_params_use_case:
-                request = FindChangedParametersRequest(
-                    session_id="current_session",
-                    from_time=start_time_str,
-                    to_time=end_time_str,
-                    threshold=0.1,
-                    include_timestamp_params=False,
-                    include_problematic_params=True
-                )
-
-                response = self.find_changed_params_use_case.execute(request)
-
-                # Преобразуем DTO обратно в словари для UI
-                changed_params = [self._dto_to_dict(
-                    dto) for dto in response.changed_parameters]
-
-                self.logger.info(
-                    f"Найдено {len(changed_params)} изменяемых параметров через Use Case ({response.execution_time_ms:.1f}ms)")
-                self._update_ui_with_filtered_params(changed_params)
+                self._apply_changed_params_with_use_case(start_time_str, end_time_str)
             else:
-                # Fallback к старому методу
-                self._apply_changed_params_fallback(
-                    start_time_str, end_time_str)
+                self._apply_changed_params_fallback(start_time_str, end_time_str)
 
         except Exception as e:
-            self.logger.error(
-                f"Ошибка фильтрации изменяемых параметров через Use Case: {e}")
+            self.logger.error(f"Ошибка фильтрации изменяемых параметров: {e}")
+
+    def _apply_changed_params_with_use_case(self, start_time_str: str, end_time_str: str):
+        """Применение фильтра изменяемых параметров через Use Case"""
+        try:
+            request = FindChangedParametersRequest(
+                session_id="current_session",
+                from_time=start_time_str,
+                to_time=end_time_str,
+                threshold=0.1,
+                include_timestamp_params=False,
+                include_problematic_params=True
+            )
+
+            response = self.find_changed_params_use_case.execute(request)
+
+            # Преобразуем DTO обратно в словари для UI
+            changed_params = [self._dto_to_dict(dto) for dto in response.changed_parameters]
+
+            self.logger.info(f"Найдено {len(changed_params)} изменяемых параметров через Use Case ({response.execution_time_ms:.1f}ms)")
+            self._update_ui_with_filtered_params(changed_params)
+
+        except Exception as e:
+            self.logger.error(f"Ошибка Use Case для изменяемых параметров: {e}")
+            self._apply_changed_params_fallback(start_time_str, end_time_str)
+
+    def _apply_changed_params_fallback(self, start_time_str: str, end_time_str: str):
+        """Fallback для фильтрации изменяемых параметров"""
+        try:
+            # Пытаемся через сервис фильтрации
+            if self.filtering_service and hasattr(self.filtering_service, 'filter_changed_params'):
+                changed_params = self.filtering_service.filter_changed_params(start_time_str, end_time_str)
+                self.logger.info(f"Найдено {len(changed_params)} изменяемых параметров через сервис")
+                self._update_ui_with_filtered_params(changed_params)
+                return
+
+            # Пытаемся через data_loader
+            if (hasattr(self.model, 'data_loader') and 
+                hasattr(self.model.data_loader, 'filter_changed_params')):
+                changed_params = self.model.data_loader.filter_changed_params(start_time_str, end_time_str)
+                self.logger.info(f"Найдено {len(changed_params)} изменяемых параметров через data_loader")
+                self._update_ui_with_filtered_params(changed_params)
+                return
+
+            # Последний fallback - эвристика (первые 50% параметров)
+            all_params = self._get_all_parameters()
+            changed_params = all_params[:len(all_params)//2]
+            self.logger.warning(f"Использована эвристика: {len(changed_params)} параметров")
+            self._update_ui_with_filtered_params(changed_params)
+
+        except Exception as e:
+            self.logger.error(f"Ошибка fallback фильтрации изменяемых параметров: {e}")
+
+    def _apply_standard_filters(self):
+        """Применение стандартных фильтров"""
+        try:
+            # Используем Use Case если доступен
+            if self.filter_parameters_use_case:
+                self._apply_standard_filters_with_use_case()
+            else:
+                self._apply_standard_filters_fallback()
+
+        except Exception as e:
+            self.logger.error(f"Ошибка применения стандартных фильтров: {e}")
 
     def _apply_standard_filters_with_use_case(self):
         """Применение стандартных фильтров через Use Case"""
         try:
-            if not self.filter_parameters_use_case:
-                self.logger.warning("Use Case фильтрации не установлен")
-                self._apply_fallback_filters()
-                return
-
             # Получаем критерии фильтрации
             criteria = self._get_filter_criteria()
 
@@ -229,7 +791,7 @@ class MainController:
                 signal_parts=criteria.get('components', []),
                 changed_only=criteria.get('changed_only', False),
                 search_text=criteria.get('search_text', ''),
-                time_range=None  # Пока не используем
+                time_range=None
             )
 
             # Выполняем фильтрацию через Use Case
@@ -241,19 +803,35 @@ class MainController:
             response = self.filter_parameters_use_case.execute(request)
 
             # Преобразуем DTO обратно в словари для UI
-            filtered_params = [self._dto_to_dict(
-                dto) for dto in response.parameters]
+            filtered_params = [self._dto_to_dict(dto) for dto in response.parameters]
 
-            self.logger.info(
-                f"Применены фильтры через Use Case: {response.total_count} -> {response.filtered_count} параметров")
-
-            # Обновляем UI
+            self.logger.info(f"Применены фильтры через Use Case: {response.total_count} -> {response.filtered_count} параметров")
             self._update_ui_with_filtered_params(filtered_params)
 
         except Exception as e:
-            self.logger.error(
-                f"Ошибка применения стандартных фильтров через Use Case: {e}")
-            self._apply_fallback_filters()
+            self.logger.error(f"Ошибка Use Case для стандартных фильтров: {e}")
+            self._apply_standard_filters_fallback()
+
+    def _apply_standard_filters_fallback(self):
+        """Fallback для стандартных фильтров"""
+        try:
+            # Получаем все параметры
+            all_params = self._get_all_parameters()
+
+            # Применяем фильтрацию через сервис если доступен
+            if self.filtering_service:
+                criteria = self._get_filter_criteria()
+                filtered_params = self.filtering_service.filter_parameters(all_params, criteria)
+                self.logger.info(f"Применены фильтры через сервис: {len(all_params)} -> {len(filtered_params)} параметров")
+            else:
+                # Простейший fallback - возвращаем все параметры
+                filtered_params = all_params
+                self.logger.warning(f"Fallback фильтрация: {len(filtered_params)} параметров")
+
+            self._update_ui_with_filtered_params(filtered_params)
+
+        except Exception as e:
+            self.logger.error(f"Ошибка fallback фильтрации: {e}")
 
     def _dto_to_dict(self, param_dto) -> Dict[str, Any]:
         """Преобразование ParameterDTO в словарь для UI"""
@@ -272,442 +850,14 @@ class MainController:
             self.logger.error(f"Ошибка преобразования DTO: {e}")
             return {}
 
-    def build_plot(self):
-        """ОБНОВЛЕННОЕ построение графика с интеграцией PlotVisualizationPanel"""
-        try:
-            # Получаем выбранные параметры
-            selected_params = self._get_selected_parameters()
-
-            if not selected_params:
-                if hasattr(self.view, 'show_warning'):
-                    self.view.show_warning(
-                        "Выберите параметры для построения графика")
-                return
-
-            # Получаем временной диапазон
-            start_time_str, end_time_str = self._get_time_range()
-
-            # Валидация времени
-            if not self._validate_time_range(start_time_str, end_time_str):
-                return
-
-            # Преобразуем строки времени в datetime
-            try:
-                start_time = datetime.strptime(
-                    start_time_str, '%Y-%m-%d %H:%M:%S')
-                end_time = datetime.strptime(end_time_str, '%Y-%m-%d %H:%M:%S')
-            except ValueError as e:
-                self.logger.error(f"Ошибка парсинга времени: {e}")
-                if hasattr(self.view, 'show_error'):
-                    self.view.show_error(f"Неверный формат времени: {e}")
-                return
-
-            # Используем PlotVisualizationPanel если доступен
-            plot_panel = self._get_plot_panel()
-            if plot_panel:
-                plot_panel.build_plots_for_parameters(
-                    selected_params, start_time, end_time)
-                self.logger.info(
-                    "График построен через PlotVisualizationPanel")
-
-                if hasattr(self.view, 'update_status'):
-                    self.view.update_status("График построен")
-            else:
-                # Fallback к legacy методу
-                self.logger.warning(
-                    "PlotVisualizationPanel не найден, используется fallback")
-                if hasattr(self.view, 'show_error'):
-                    self.view.show_error(
-                        "Компонент построения графиков недоступен")
-
-        except Exception as e:
-            self.logger.error(f"Ошибка построения графика: {e}")
-            if hasattr(self.view, 'show_error'):
-                self.view.show_error(f"Ошибка построения графика: {e}")
-
-    def _get_plot_panel(self):
-        """Получение PlotVisualizationPanel"""
-        try:
-            if hasattr(self.view, 'plot_panel'):
-                return self.view.plot_panel
-            elif hasattr(self.view, 'get_component'):
-                return self.view.get_component('plot_panel')
-            return None
-        except Exception as e:
-            self.logger.error(f"Ошибка получения plot_panel: {e}")
-            return None
-
-    def _update_time_panel_fields(self, time_fields: Dict[str, str]) -> bool:
-        """КРИТИЧНО ИСПРАВЛЕНО: Обновление полей времени в UI"""
-        try:
-            self.logger.info(
-                f"Попытка обновления полей времени: {time_fields}")
-
-            # МНОЖЕСТВЕННЫЕ СПОСОБЫ ПОИСКА time_panel
-            time_panel = None
-            search_paths = []
-
-            # Способ 1: Прямой доступ через view.time_panel
-            if hasattr(self.view, 'time_panel') and self.view.time_panel:
-                time_panel = self.view.time_panel
-                search_paths.append("view.time_panel ✅")
-            else:
-                search_paths.append("view.time_panel ❌")
-
-            # Способ 2: Через main_window.time_panel
-            if not time_panel and hasattr(self.view, 'main_window'):
-                if hasattr(self.view.main_window, 'time_panel'):
-                    time_panel = self.view.main_window.time_panel
-                    search_paths.append("main_window.time_panel ✅")
-                else:
-                    search_paths.append("main_window.time_panel ❌")
-
-            # Способ 3: Через get_component
-            if not time_panel and hasattr(self.view, 'get_component'):
-                time_panel = self.view.get_component('time_panel')
-                if time_panel:
-                    search_paths.append("get_component('time_panel') ✅")
-                else:
-                    search_paths.append("get_component('time_panel') ❌")
-
-            # Способ 4: Поиск в UI компонентах
-            if not time_panel:
-                time_panel = self._find_time_panel_in_ui()
-                if time_panel:
-                    search_paths.append("_find_time_panel_in_ui() ✅")
-                else:
-                    search_paths.append("_find_time_panel_in_ui() ❌")
-
-            self.logger.info(f"Поиск time_panel: {' | '.join(search_paths)}")
-
-            # ПОПЫТКА ОБНОВЛЕНИЯ
-            if time_panel:
-                self.logger.info(f"time_panel найден: {type(time_panel)}")
-
-                # Проверяем наличие метода update_time_fields
-                if hasattr(time_panel, 'update_time_fields'):
-                    self.logger.info("Вызов time_panel.update_time_fields...")
-                    time_panel.update_time_fields(
-                        from_time=time_fields['from_time'],
-                        to_time=time_fields['to_time'],
-                        duration=time_fields.get('duration', ''),
-                        total_records=time_fields.get('total_records', 0)
-                    )
-                    self.logger.info(
-                        "✅ time_panel.update_time_fields выполнен успешно")
-                    return True
-                else:
-                    self.logger.error(
-                        f"❌ time_panel не имеет метода update_time_fields. Доступные методы: {[m for m in dir(time_panel) if not m.startswith('_')]}")
-                    return False
-            else:
-                self.logger.error(
-                    "❌ time_panel НЕ НАЙДЕН во всех попытках поиска")
-
-                # ДИАГНОСТИКА: Выводим структуру view
-                self._diagnose_view_structure()
-                return False
-
-        except Exception as e:
-            self.logger.error(f"Ошибка обновления полей времени: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-
-    def _find_time_panel_in_ui(self):
-        """Поиск time_panel в компонентах UI"""
-        try:
-            # Поиск по атрибутам view
-            if hasattr(self.view, '__dict__'):
-                for attr_name, attr_value in self.view.__dict__.items():
-                    if 'time' in attr_name.lower() and hasattr(attr_value, 'update_time_fields'):
-                        self.logger.info(
-                            f"Найден time_panel через атрибут: {attr_name}")
-                        return attr_value
-
-            # Поиск по children виджетов
-            if hasattr(self.view, 'root') and hasattr(self.view.root, 'winfo_children'):
-                return self._search_widget_tree(self.view.root, 'time_panel')
-
-            return None
-
-        except Exception as e:
-            self.logger.error(f"Ошибка поиска time_panel в UI: {e}")
-            return None
-
-    def _search_widget_tree(self, widget, target_name):
-        """Рекурсивный поиск виджета в дереве"""
-        try:
-            # Проверяем текущий виджет
-            if hasattr(widget, '_name') and target_name in widget._name:
-                return widget
-
-            # Ищем в дочерних виджетах
-            if hasattr(widget, 'winfo_children'):
-                for child in widget.winfo_children():
-                    result = self._search_widget_tree(child, target_name)
-                    if result:
-                        return result
-
-            return None
-
-        except Exception:
-            return None
-
-    def _diagnose_view_structure(self):
-        """ДИАГНОСТИКА: Анализ структуры view"""
-        try:
-            self.logger.info("=== ДИАГНОСТИКА СТРУКТУРЫ VIEW ===")
-
-            if hasattr(self.view, '__dict__'):
-                view_attrs = list(self.view.__dict__.keys())
-                self.logger.info(f"Атрибуты view: {view_attrs}")
-
-                # Ищем атрибуты связанные со временем
-                time_related = [
-                    attr for attr in view_attrs if 'time' in attr.lower()]
-                if time_related:
-                    self.logger.info(
-                        f"Атрибуты связанные со временем: {time_related}")
-
-                # Ищем панели
-                panel_related = [
-                    attr for attr in view_attrs if 'panel' in attr.lower()]
-                if panel_related:
-                    self.logger.info(f"Атрибуты панелей: {panel_related}")
-
-            # Проверяем main_window
-            if hasattr(self.view, 'main_window'):
-                self.logger.info("main_window найден")
-                if hasattr(self.view.main_window, '__dict__'):
-                    mw_attrs = list(self.view.main_window.__dict__.keys())
-                    self.logger.info(f"Атрибуты main_window: {mw_attrs}")
-
-        except Exception as e:
-            self.logger.error(f"Ошибка диагностики: {e}")
-
-    def _handle_successful_load(self):
-        """Обработка успешной загрузки (обновлена)"""
-        try:
-            if self._has_data():
-                params = self.model.data_loader.parameters
-                self.logger.info(f"Загружено параметров: {len(params)}")
-
-                # Очищаем кэш фильтров
-                self._filter_criteria_cache = None
-
-                # Обновляем дерево параметров
-                if hasattr(self.view, 'parameter_panel') and self.view.parameter_panel:
-                    if hasattr(self.view.parameter_panel, 'update_tree_all_params'):
-                        # ИСПРАВЛЕНИЕ: Очищаем описания параметров перед обновлением
-                        cleaned_params = self._clean_parameter_descriptions(
-                            params)
-                        self.view.parameter_panel.update_tree_all_params(
-                            cleaned_params)
-
-                # Обновляем фильтры
-                if hasattr(self.model.data_loader, 'lines'):
-                    lines = list(self.model.data_loader.lines)
-                    if hasattr(self.view, 'filter_panel') and self.view.filter_panel:
-                        if hasattr(self.view.filter_panel, 'update_line_checkboxes'):
-                            self.view.filter_panel.update_line_checkboxes(
-                                lines)
-
-                # Применяем фильтры
-                self.apply_filters()
-
-                # Обновляем статус
-                if hasattr(self.view, 'update_status'):
-                    self.view.update_status(
-                        f"Файл загружен: {len(params)} параметров")
-
-        except Exception as e:
-            self.logger.error(f"Ошибка обработки успешной загрузки: {e}")
-
-    def _clean_parameter_descriptions(self, params: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """НОВОЕ: Очистка описаний параметров от артефактов"""
-        try:
-            cleaned_params = []
-
-            for param in params:
-                if isinstance(param, dict):
-                    # Создаем копию параметра
-                    clean_param = param.copy()
-
-                    # Очищаем описание
-                    description = clean_param.get('description', '')
-                    if description:
-                        # Удаляем артефакты "|0", "|", пустые строки
-                        description = description.replace(
-                            '|0', '').replace('|', '').strip()
-
-                        # Удаляем множественные пробелы
-                        import re
-                        description = re.sub(r'\s+', ' ', description).strip()
-
-                        # Если описание стало пустым, генерируем из signal_code
-                        if not description and clean_param.get('signal_code'):
-                            signal_code = clean_param['signal_code']
-                            description = signal_code.replace('_', ' ').title()
-
-                        clean_param['description'] = description
-
-                    cleaned_params.append(clean_param)
-                else:
-                    cleaned_params.append(param)
-
-            self.logger.info(
-                f"Очищены описания {len(cleaned_params)} параметров")
-            return cleaned_params
-
-        except Exception as e:
-            self.logger.error(f"Ошибка очистки описаний параметров: {e}")
-            return params
-
-    def apply_filters(self, changed_only: bool = False):
-        """ИСПРАВЛЕННОЕ применение фильтров с поддержкой changed_only"""
-        try:
-            self.logger.info(
-                f"Начало применения фильтров (changed_only={changed_only})")
-
-            if self.is_processing:
-                self.logger.warning("Фильтрация уже выполняется, пропускаем")
-                return
-
-            self.is_processing = True
-
-            try:
-                # Проверяем наличие данных
-                if not self._has_data():
-                    self.logger.warning(
-                        "Нет параметров для фильтрации. Загрузите CSV файл.")
-                    self._show_no_data_message()
-                    return
-
-                # Специальная обработка для "только изменяемые параметры"
-                if changed_only:
-                    self._apply_changed_params_filter()
-                    return
-
-                # Обычная фильтрация
-                self._apply_standard_filters()
-
-            finally:
-                self.is_processing = False
-
-        except Exception as e:
-            self.logger.error(f"Ошибка применения фильтров: {e}")
-            self.is_processing = False
-
-    def _has_data(self) -> bool:
-        """Проверка наличия данных для фильтрации"""
-        return (hasattr(self.model, 'data_loader') and
-                self.model.data_loader and
-                hasattr(self.model.data_loader, 'parameters') and
-                self.model.data_loader.parameters)
-
-    def _show_no_data_message(self):
-        """Показ сообщения об отсутствии данных"""
-        if hasattr(self.view, 'show_warning'):
-            self.view.show_warning(
-                "Загрузите CSV файл для отображения параметров")
-
-        # Обновляем UI с пустыми данными
-        self._update_ui_with_filtered_params([])
-
-    def _apply_changed_params_filter(self):
-        """Применение фильтра только изменяемых параметров"""
-        try:
-            # Получаем временной диапазон
-            start_time_str, end_time_str = self._get_time_range()
-
-            if not start_time_str or not end_time_str:
-                self.logger.error("Не удалось получить временной диапазон")
-                self._show_time_error()
-                return
-
-            # Применяем фильтрацию изменяемых параметров
-            if self.filtering_service and hasattr(self.filtering_service, 'filter_changed_params'):
-                changed_params = self.filtering_service.filter_changed_params(
-                    start_time_str, end_time_str
-                )
-
-                self.logger.info(
-                    f"Найдено {len(changed_params)} изменяемых параметров")
-                self._update_ui_with_filtered_params(changed_params)
-
-            else:
-                # Fallback через модель
-                self._apply_changed_params_fallback(
-                    start_time_str, end_time_str)
-
-        except Exception as e:
-            self.logger.error(f"Ошибка фильтрации изменяемых параметров: {e}")
-
-    def _apply_changed_params_fallback(self, start_time_str: str, end_time_str: str):
-        """Fallback для фильтрации изменяемых параметров"""
-        try:
-            # Пытаемся через data_loader
-            if (hasattr(self.model, 'data_loader') and
-                    hasattr(self.model.data_loader, 'filter_changed_params')):
-
-                changed_params = self.model.data_loader.filter_changed_params(
-                    start_time_str, end_time_str
-                )
-
-                self.logger.info(
-                    f"Найдено {len(changed_params)} изменяемых параметров через data_loader")
-                self._update_ui_with_filtered_params(changed_params)
-                return
-
-            # Последний fallback - эвристика
-            all_params = self._get_all_parameters()
-            changed_params = all_params[:len(all_params)//2]  # Первые 50%
-
-            self.logger.warning(
-                f"Использована эвристика: {len(changed_params)} параметров")
-            self._update_ui_with_filtered_params(changed_params)
-
-        except Exception as e:
-            self.logger.error(f"Ошибка fallback фильтрации: {e}")
-
-    def _apply_standard_filters(self):
-        """Применение стандартных фильтров"""
-        try:
-            if not self.filtering_service:
-                self.logger.warning("Сервис фильтрации не установлен")
-                self._apply_fallback_filters()
-                return
-
-            # Получаем критерии фильтрации
-            criteria = self._get_filter_criteria()
-
-            # Получаем все параметры
-            all_params = self._get_all_parameters()
-
-            # Применяем фильтрацию через сервис
-            filtered_params = self.filtering_service.filter_parameters(
-                all_params, criteria)
-
-            self.logger.info(
-                f"Применены фильтры через сервис: {len(all_params)} -> {len(filtered_params)} параметров")
-
-            # Обновляем UI
-            self._update_ui_with_filtered_params(filtered_params)
-
-        except Exception as e:
-            self.logger.error(f"Ошибка применения стандартных фильтров: {e}")
-            self._apply_fallback_filters()
-
-    def _get_filter_criteria(self) -> Dict[str, List[str]]:
+    def _get_filter_criteria(self) -> Dict[str, Any]:
         """Получение критериев фильтрации с кэшированием"""
         try:
-            import time
             current_time = time.time()
 
             # Проверяем кэш (обновляем каждые 100мс)
-            if (self._filter_criteria_cache and
-                    current_time - self._last_filter_update < 0.1):
+            if (self._filter_criteria_cache and 
+                current_time - self._last_filter_update < 0.1):
                 return self._filter_criteria_cache
 
             criteria = {
@@ -715,28 +865,16 @@ class MainController:
                 'lines': [],
                 'wagons': [],
                 'components': [],
-                'hardware': []
+                'hardware': [],
+                'changed_only': False,
+                'search_text': ''
             }
 
-            if hasattr(self.view, 'filter_panel') and self.view.filter_panel:
-                filter_panel = self.view.filter_panel
-
-                # Получаем через новый интерфейс
-                if hasattr(filter_panel, 'get_selected_filters'):
-                    filter_result = filter_panel.get_selected_filters()
-                    criteria.update(filter_result)
-
-                    # НОВОЕ: Обрабатываем чекбокс изменяемых параметров
-                    if filter_result.get('changed_only', False):
-                        self.logger.info(
-                            "Активирован фильтр 'только изменяемые параметры'")
-                        self.apply_filters(changed_only=True)
-                        return criteria
-
-                # Fallback на старый интерфейс
-                else:
-                    criteria.update(
-                        self._extract_legacy_filter_criteria(filter_panel))
+            # Получаем критерии из UI
+            filter_panel = self._get_filter_panel()
+            if filter_panel and hasattr(filter_panel, 'get_selected_filters'):
+                filter_result = filter_panel.get_selected_filters()
+                criteria.update(filter_result)
 
             # Кэшируем результат
             self._filter_criteria_cache = criteria
@@ -748,82 +886,192 @@ class MainController:
             self.logger.error(f"Ошибка получения критериев фильтрации: {e}")
             return self._get_default_criteria()
 
-    # Остальные методы остаются без изменений...
-    def _extract_legacy_filter_criteria(self, filter_panel) -> Dict[str, List[str]]:
-        """Извлечение критериев из legacy интерфейса"""
-        criteria = {}
+    def _get_filter_panel(self):
+        """Получение filter_panel"""
+        try:
+            # Способ 1: Через ui_components
+            if (hasattr(self.view, 'ui_components') and 
+                self.view.ui_components and 
+                hasattr(self.view.ui_components, 'filter_panel')):
+                return self.view.ui_components.filter_panel
 
-        # Извлечение через атрибуты панели
-        if hasattr(filter_panel, 'signal_vars'):
-            criteria['signal_types'] = [
-                k for k, v in filter_panel.signal_vars.items() if v.get()
-            ]
+            # Способ 2: Прямой доступ
+            if hasattr(self.view, 'filter_panel'):
+                return self.view.filter_panel
 
-        if hasattr(filter_panel, 'line_vars'):
-            criteria['lines'] = [
-                k for k, v in filter_panel.line_vars.items() if v.get()
-            ]
+            # Способ 3: Через get_component
+            if hasattr(self.view, 'get_component'):
+                return self.view.get_component('filter_panel')
 
-        if hasattr(filter_panel, 'wagon_vars'):
-            criteria['wagons'] = [
-                k for k, v in filter_panel.wagon_vars.items() if v.get()
-            ]
+            return None
+        except Exception as e:
+            self.logger.error(f"Ошибка получения filter_panel: {e}")
+            return None
 
-        if hasattr(filter_panel, 'component_vars'):
-            criteria['components'] = [
-                k for k, v in filter_panel.component_vars.items() if v.get()
-            ]
-
-        if hasattr(filter_panel, 'hardware_vars'):
-            criteria['hardware'] = [
-                k for k, v in filter_panel.hardware_vars.items() if v.get()
-            ]
-
-        return criteria
-
-    def _get_default_criteria(self) -> Dict[str, List[str]]:
+    def _get_default_criteria(self) -> Dict[str, Any]:
         """Критерии по умолчанию (все включено)"""
         return {
             'signal_types': ['B', 'BY', 'W', 'DW', 'F', 'WF'],
             'lines': [],
             'wagons': [str(i) for i in range(1, 16)],
             'components': [],
-            'hardware': []
+            'hardware': [],
+            'changed_only': False,
+            'search_text': ''
         }
 
-    def _get_all_parameters(self) -> List[Any]:
-        """Получение всех параметров"""
-        if self._has_data():
-            return self.model.data_loader.parameters
-        return []
+    def _update_ui_with_filtered_params(self, filtered_params: List[Any]):
+        """Обновление UI с отфильтрованными параметрами"""
+        try:
+            # Очищаем описания перед обновлением UI
+            cleaned_params = self._clean_parameter_descriptions(filtered_params)
+
+            # Обновляем счетчик
+            if hasattr(self.view, 'update_filtered_count'):
+                self.view.update_filtered_count(len(cleaned_params))
+
+            # Обновляем параметры в UI
+            self._update_parameters_in_ui(cleaned_params)
+
+            # Принудительное обновление экрана
+            if hasattr(self.view, 'root'):
+                self.view.root.update_idletasks()
+
+            # Уведомляем о применении фильтров
+            self._emit_event('filters_applied', {'count': len(cleaned_params)})
+
+            self.logger.info(f"UI обновлен с отфильтрованными параметрами: {len(cleaned_params)}")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления UI с отфильтрованными параметрами: {e}")
+
+    # === МЕТОДЫ ПОСТРОЕНИЯ ГРАФИКОВ ===
+
+    def build_plot(self):
+        """ОБНОВЛЕННОЕ построение графика с интеграцией PlotVisualizationPanel"""
+        try:
+            # Получаем выбранные параметры
+            selected_params = self._get_selected_parameters()
+
+            if not selected_params:
+                if hasattr(self.view, 'show_warning'):
+                    self.view.show_warning("Выберите параметры для построения графика")
+                return
+
+            # Получаем временной диапазон
+            start_time_str, end_time_str = self._get_time_range()
+
+            # Валидация времени
+            if not self._validate_time_range(start_time_str, end_time_str):
+                return
+
+            # Преобразуем строки времени в datetime
+            try:
+                start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
+                end_time = datetime.strptime(end_time_str, '%Y-%m-%d %H:%M:%S')
+            except ValueError as e:
+                self.logger.error(f"Ошибка парсинга времени: {e}")
+                if hasattr(self.view, 'show_error'):
+                    self.view.show_error(f"Неверный формат времени: {e}")
+                return
+
+            # Используем PlotVisualizationPanel если доступен
+            plot_panel = self._get_plot_panel()
+            if plot_panel and hasattr(plot_panel, 'build_plots_for_parameters'):
+                plot_panel.build_plots_for_parameters(selected_params, start_time, end_time)
+                self.logger.info("График построен через PlotVisualizationPanel")
+                
+                if hasattr(self.view, 'update_status'):
+                    self.view.update_status("График построен")
+            else:
+                # Fallback к legacy методу
+                self.logger.warning("PlotVisualizationPanel не найден, используется fallback")
+                if hasattr(self.view, 'show_error'):
+                    self.view.show_error("Компонент построения графиков недоступен")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка построения графика: {e}")
+            import traceback
+            traceback.print_exc()
+            if hasattr(self.view, 'show_error'):
+                self.view.show_error(f"Ошибка построения графика: {e}")
+
+    def _get_selected_parameters(self) -> List[Dict[str, Any]]:
+        """Получение выбранных параметров"""
+        try:
+            # Способ 1: Через ui_components
+            if (hasattr(self.view, 'ui_components') and 
+                self.view.ui_components and 
+                hasattr(self.view.ui_components, 'parameter_panel')):
+                
+                parameter_panel = self.view.ui_components.parameter_panel
+                if hasattr(parameter_panel, 'get_selected_parameters'):
+                    return parameter_panel.get_selected_parameters()
+
+            # Способ 2: Через прямой доступ
+            if hasattr(self.view, 'parameter_panel') and self.view.parameter_panel:
+                parameter_panel = self.view.parameter_panel
+                if hasattr(parameter_panel, 'get_selected_parameters'):
+                    return parameter_panel.get_selected_parameters()
+
+            # Способ 3: Через get_component
+            if hasattr(self.view, 'get_component'):
+                parameter_panel = self.view.get_component('parameter_panel')
+                if parameter_panel and hasattr(parameter_panel, 'get_selected_parameters'):
+                    return parameter_panel.get_selected_parameters()
+
+            self.logger.warning("Не найден способ получения выбранных параметров")
+            return []
+
+        except Exception as e:
+            self.logger.error(f"Ошибка получения выбранных параметров: {e}")
+            return []
+
+    def _get_plot_panel(self):
+        """Получение PlotVisualizationPanel"""
+        try:
+            # Способ 1: Через ui_components
+            if (hasattr(self.view, 'ui_components') and 
+                self.view.ui_components and 
+                hasattr(self.view.ui_components, 'plot_panel')):
+                return self.view.ui_components.plot_panel
+
+            # Способ 2: Прямой доступ
+            if hasattr(self.view, 'plot_panel'):
+                return self.view.plot_panel
+
+            # Способ 3: Через get_component
+            if hasattr(self.view, 'get_component'):
+                return self.view.get_component('plot_panel')
+
+            return None
+        except Exception as e:
+            self.logger.error(f"Ошибка получения plot_panel: {e}")
+            return None
 
     def _get_time_range(self) -> Tuple[str, str]:
         """ИСПРАВЛЕННОЕ получение временного диапазона"""
         try:
-            # МНОЖЕСТВЕННЫЕ ПОПЫТКИ получения времени
-
             # Способ 1: Через time_panel
-            time_panel = self._find_time_panel_in_ui()
+            time_panel = None
+            
+            # Поиск time_panel
+            if (hasattr(self.view, 'ui_components') and 
+                self.view.ui_components and 
+                hasattr(self.view.ui_components, 'time_panel')):
+                time_panel = self.view.ui_components.time_panel
+            elif hasattr(self.view, 'time_panel'):
+                time_panel = self.view.time_panel
+            elif hasattr(self.view, 'get_component'):
+                time_panel = self.view.get_component('time_panel')
+
             if time_panel and hasattr(time_panel, 'get_time_range'):
                 result = time_panel.get_time_range()
                 if result[0] and result[1]:
-                    self.logger.debug(
-                        f"Время получено через time_panel: {result}")
+                    self.logger.debug(f"Время получено через time_panel: {result}")
                     return result
 
-            # Способ 2: Через filter_panel с полями времени
-            if hasattr(self.view, 'filter_panel') and self.view.filter_panel:
-                filter_panel = self.view.filter_panel
-                if (hasattr(filter_panel, 'from_time_entry') and
-                        hasattr(filter_panel, 'to_time_entry')):
-                    from_time = filter_panel.from_time_entry.get()
-                    to_time = filter_panel.to_time_entry.get()
-                    if from_time and to_time:
-                        self.logger.debug(
-                            f"Время получено через filter_panel: {from_time} - {to_time}")
-                        return (from_time, to_time)
-
-            # Способ 3: Через модель данных
+            # Способ 2: Через модель данных
             if hasattr(self.model, 'get_time_range_fields'):
                 time_fields = self.model.get_time_range_fields()
                 if time_fields and time_fields.get('from_time') and time_fields.get('to_time'):
@@ -832,7 +1080,6 @@ class MainController:
                     return result
 
             # Fallback - текущее время
-            from datetime import datetime, timedelta
             now = datetime.now()
             start = now - timedelta(hours=1)
             result = (
@@ -846,242 +1093,6 @@ class MainController:
             self.logger.error(f"Ошибка получения временного диапазона: {e}")
             return ("", "")
 
-    def _show_time_error(self):
-        """Показ ошибки времени"""
-        if hasattr(self.view, 'show_error'):
-            self.view.show_error("Не удалось получить временной диапазон")
-
-    def _apply_fallback_filters(self):
-        """Fallback фильтрация без сервиса"""
-        try:
-            all_params = self._get_all_parameters()
-            self.logger.info(
-                f"Fallback фильтрация: {len(all_params)} параметров")
-            self._update_ui_with_filtered_params(all_params)
-
-        except Exception as e:
-            self.logger.error(f"Ошибка fallback фильтрации: {e}")
-
-    def _update_ui_with_filtered_params(self, filtered_params: List[Any]):
-        """Обновление UI с отфильтрованными параметрами"""
-        try:
-            # ИСПРАВЛЕНИЕ: Очищаем описания перед обновлением UI
-            cleaned_params = self._clean_parameter_descriptions(
-                filtered_params)
-
-            # Обновляем счетчик
-            if hasattr(self.view, 'update_filtered_count'):
-                self.view.update_filtered_count(len(cleaned_params))
-
-            # Обновляем дерево параметров
-            if hasattr(self.view, 'parameter_panel') and self.view.parameter_panel:
-                if hasattr(self.view.parameter_panel, 'update_tree_all_params'):
-                    self.view.parameter_panel.update_tree_all_params(
-                        cleaned_params)
-                    self.logger.info(
-                        f"UI обновлен: {len(cleaned_params)} параметров")
-                else:
-                    self.logger.error(
-                        "Метод update_tree_all_params не найден в parameter_panel")
-            else:
-                self.logger.error("parameter_panel не найден в view")
-
-            # Принудительное обновление экрана
-            if hasattr(self.view, 'root'):
-                self.view.root.update_idletasks()
-
-        except Exception as e:
-            self.logger.error(f"Ошибка обновления UI: {e}")
-
-    def upload_csv(self):
-        """ИСПРАВЛЕННАЯ загрузка CSV"""
-        try:
-            from tkinter import filedialog
-
-            file_path = filedialog.askopenfilename(
-                title="Выберите CSV файл",
-                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
-            )
-
-            if file_path:
-                self.logger.info(f"Выбран файл: {file_path}")
-
-                # Показываем процесс загрузки
-                if hasattr(self.view, 'start_processing'):
-                    self.view.start_processing("Загрузка файла...")
-
-                # Загружаем файл
-                success = self._load_csv_file(file_path)
-
-                if success:
-                    self.logger.info("Файл успешно загружен")
-                    # КРИТИЧНО: Вызываем обработку успешной загрузки
-                    self._on_file_loaded(file_path)
-                else:
-                    self.logger.error("Ошибка загрузки файла")
-                    if hasattr(self.view, 'show_error'):
-                        self.view.show_error("Ошибка загрузки файла")
-
-                # Останавливаем индикатор загрузки
-                if hasattr(self.view, 'stop_processing'):
-                    self.view.stop_processing()
-
-        except Exception as e:
-            self.logger.error(f"Ошибка загрузки CSV: {e}")
-            if hasattr(self.view, 'show_error'):
-                self.view.show_error(f"Ошибка загрузки: {e}")
-            if hasattr(self.view, 'stop_processing'):
-                self.view.stop_processing()
-
-    def _load_csv_file(self, file_path: str) -> bool:
-        """Загрузка CSV файла через модель"""
-        try:
-            if hasattr(self.model, 'load_csv_file'):
-                return self.model.load_csv_file(file_path)
-            else:
-                self.logger.error("Метод load_csv_file не найден в модели")
-                return False
-
-        except Exception as e:
-            self.logger.error(f"Ошибка в _load_csv_file: {e}")
-            return False
-
-    def _handle_successful_load(self):
-        """ИСПРАВЛЕННАЯ обработка успешной загрузки (обновлена)"""
-        try:
-            if self._has_data():
-                params = self.model.data_loader.parameters
-                self.logger.info(f"Загружено параметров: {len(params)}")
-
-                # Очищаем кэш фильтров
-                self._filter_criteria_cache = None
-
-                # КРИТИЧНО: Обновляем дерево параметров
-                if hasattr(self.view, 'ui_components') and self.view.ui_components:
-                    if hasattr(self.view.ui_components, 'parameter_panel'):
-                        parameter_panel = self.view.ui_components.parameter_panel
-                        if hasattr(parameter_panel, 'update_parameters'):
-                            # Очищаем описания параметров перед обновлением
-                            cleaned_params = self._clean_parameter_descriptions(
-                                params)
-                            parameter_panel.update_parameters(cleaned_params)
-                            self.logger.info("Дерево параметров обновлено")
-                        else:
-                            self.logger.error(
-                                "Метод update_parameters не найден в parameter_panel")
-                    else:
-                        self.logger.error(
-                            "parameter_panel не найден в ui_components")
-                else:
-                    self.logger.error("ui_components не найден в view")
-
-                # Обновляем фильтры
-                if hasattr(self.model.data_loader, 'lines'):
-                    lines = list(self.model.data_loader.lines)
-                    if hasattr(self.view, 'ui_components') and self.view.ui_components:
-                        if hasattr(self.view.ui_components, 'filter_panel'):
-                            filter_panel = self.view.ui_components.filter_panel
-                            if hasattr(filter_panel, 'update_line_checkboxes'):
-                                filter_panel.update_line_checkboxes(lines)
-
-                # Применяем фильтры
-                self.apply_filters()
-
-                # Обновляем статус
-                if hasattr(self.view, 'update_status'):
-                    self.view.update_status(
-                        f"Файл загружен: {len(params)} параметров")
-
-        except Exception as e:
-            self.logger.error(f"Ошибка обработки успешной загрузки: {e}")
-
-    def build_plot(self):
-        """ОБНОВЛЕННОЕ построение графика с интеграцией PlotVisualizationPanel"""
-        try:
-            # ИСПРАВЛЕННОЕ получение выбранных параметров
-            selected_params = []
-            if hasattr(self.view, 'ui_components') and self.view.ui_components:
-                if hasattr(self.view.ui_components, 'parameter_panel'):
-                    parameter_panel = self.view.ui_components.parameter_panel
-                    if hasattr(parameter_panel, 'get_selected_parameters'):
-                        selected_params = parameter_panel.get_selected_parameters()
-
-            if not selected_params:
-                if hasattr(self.view, 'show_warning'):
-                    self.view.show_warning(
-                        "Выберите параметры для построения графика")
-                return
-
-            # ИСПРАВЛЕННОЕ получение временного диапазона
-            start_time_str, end_time_str = "", ""
-            if hasattr(self.view, 'ui_components') and self.view.ui_components:
-                if hasattr(self.view.ui_components, 'time_panel'):
-                    time_panel = self.view.ui_components.time_panel
-                    if hasattr(time_panel, 'get_time_range'):
-                        start_time_str, end_time_str = time_panel.get_time_range()
-
-            # Валидация времени
-            if not self._validate_time_range(start_time_str, end_time_str):
-                return
-
-            # Преобразуем строки времени в datetime
-            try:
-                start_time = datetime.strptime(
-                    start_time_str, '%Y-%m-%d %H:%M:%S')
-                end_time = datetime.strptime(end_time_str, '%Y-%m-%d %H:%M:%S')
-            except ValueError as e:
-                self.logger.error(f"Ошибка парсинга времени: {e}")
-                if hasattr(self.view, 'show_error'):
-                    self.view.show_error(f"Неверный формат времени: {e}")
-                return
-
-            # ИСПРАВЛЕННОЕ использование PlotVisualizationPanel
-            plot_panel = None
-            if hasattr(self.view, 'plot_panel'):
-                plot_panel = self.view.plot_panel
-            elif hasattr(self.view, 'get_component'):
-                plot_panel = self.view.get_component('plot_panel')
-
-            if plot_panel:
-                plot_panel.build_plots_for_parameters(
-                    selected_params, start_time, end_time)
-                self.logger.info(
-                    "График построен через PlotVisualizationPanel")
-
-                if hasattr(self.view, 'update_status'):
-                    self.view.update_status("График построен")
-            else:
-                # Fallback к legacy методу
-                self.logger.warning(
-                    "PlotVisualizationPanel не найден, используется fallback")
-                self.logger.error("PlotVisualizationPanel не найден")
-                if hasattr(self.view, 'show_error'):
-                    self.view.show_error(
-                        "Компонент построения графиков недоступен")
-
-        except Exception as e:
-            self.logger.error(f"Ошибка построения графика: {e}")
-            import traceback
-            traceback.print_exc()
-            if hasattr(self.view, 'show_error'):
-                self.view.show_error(f"Ошибка построения графика: {e}")
-
-    def _get_selected_parameters(self) -> List[Any]:
-        """Получение выбранных параметров"""
-        try:
-            if (hasattr(self.view, 'parameter_panel') and
-                    self.view.parameter_panel and
-                    hasattr(self.view.parameter_panel, 'selected_params_tree')):
-
-                tree = self.view.parameter_panel.selected_params_tree
-                if hasattr(tree, 'tree'):
-                    return [tree.tree.item(item, 'values')
-                            for item in tree.tree.get_children()]
-            return []
-        except Exception as e:
-            self.logger.error(f"Ошибка получения выбранных параметров: {e}")
-            return []
-
     def _validate_time_range(self, start_str: str, end_str: str) -> bool:
         """Валидация временного диапазона"""
         try:
@@ -1090,16 +1101,14 @@ class MainController:
                     self.view.show_error("Укажите временной диапазон")
                 return False
 
-            # Простая валидация формата
-            from datetime import datetime
+            # Валидация формата
             try:
                 start_dt = datetime.strptime(start_str, '%Y-%m-%d %H:%M:%S')
                 end_dt = datetime.strptime(end_str, '%Y-%m-%d %H:%M:%S')
 
                 if start_dt >= end_dt:
                     if hasattr(self.view, 'show_error'):
-                        self.view.show_error(
-                            "Время начала должно быть раньше времени окончания")
+                        self.view.show_error("Время начала должно быть раньше времени окончания")
                     return False
 
                 return True
@@ -1113,13 +1122,14 @@ class MainController:
             self.logger.error(f"Ошибка валидации времени: {e}")
             return False
 
+    # === МЕТОДЫ ГЕНЕРАЦИИ ОТЧЕТОВ И SOP ===
+
     def generate_report(self):
         """Генерация отчета"""
         try:
             if not self.report_generator:
                 if hasattr(self.view, 'show_error'):
-                    self.view.show_error(
-                        "Генератор отчетов не инициализирован")
+                    self.view.show_error("Генератор отчетов не инициализирован")
                 return
 
             # Получаем выбранные параметры
@@ -1158,8 +1168,7 @@ class MainController:
                 if success:
                     self.logger.info(f"Отчет создан: {file_path}")
                     if hasattr(self.view, 'show_info'):
-                        self.view.show_info(
-                            "Отчет", f"Отчет сохранен: {file_path}")
+                        self.view.show_info("Отчет", f"Отчет сохранен: {file_path}")
                 else:
                     if hasattr(self.view, 'show_error'):
                         self.view.show_error("Ошибка создания отчета")
@@ -1193,9 +1202,7 @@ class MainController:
 
             # Генерируем SOP
             sop_xml = self.sop_manager.generate_sop_for_params(
-                [{'signal_code': param[0] if param else '',
-                  'description': param[1] if len(param) > 1 else ''}
-                 for param in selected_params],
+                selected_params,
                 datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S'),
                 datetime.strptime(end_time_str, '%Y-%m-%d %H:%M:%S')
             )
@@ -1209,14 +1216,12 @@ class MainController:
                 )
 
                 if file_path:
-                    success = self.sop_manager.save_sop_to_file(
-                        sop_xml, file_path)
+                    success = self.sop_manager.save_sop_to_file(sop_xml, file_path)
 
                     if success:
                         self.logger.info(f"SOP создан: {file_path}")
                         if hasattr(self.view, 'show_info'):
-                            self.view.show_info(
-                                "SOP", f"SOP сохранен: {file_path}")
+                            self.view.show_info("SOP", f"SOP сохранен: {file_path}")
                     else:
                         if hasattr(self.view, 'show_error'):
                             self.view.show_error("Ошибка сохранения SOP")
@@ -1229,11 +1234,72 @@ class MainController:
             if hasattr(self.view, 'show_error'):
                 self.view.show_error(f"Ошибка генерации SOP: {e}")
 
+    # === ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ===
+
+    def _has_data(self) -> bool:
+        """Проверка наличия данных для работы"""
+        return (hasattr(self.model, 'data_loader') and
+                self.model.data_loader and
+                hasattr(self.model.data_loader, 'parameters') and
+                self.model.data_loader.parameters)
+
+    def _get_all_parameters(self) -> List[Any]:
+        """Получение всех параметров"""
+        if self._has_data():
+            return self.model.data_loader.parameters
+        return []
+
+    def _show_no_data_message(self):
+        """Показ сообщения об отсутствии данных"""
+        if hasattr(self.view, 'show_warning'):
+            self.view.show_warning("Загрузите CSV файл для отображения параметров")
+        self._update_ui_with_filtered_params([])
+
+    def _show_time_error(self):
+        """Показ ошибки времени"""
+        if hasattr(self.view, 'show_error'):
+            self.view.show_error("Не удалось получить временной диапазон")
+
+    def _start_loading(self, message: str = "Загрузка..."):
+        """Начало процесса загрузки"""
+        self.is_loading = True
+        if hasattr(self.view, 'start_processing'):
+            self.view.start_processing(message)
+
+    def _stop_loading(self):
+        """Завершение процесса загрузки"""
+        self.is_loading = False
+        if hasattr(self.view, 'stop_processing'):
+            self.view.stop_processing()
+
+    # === СИСТЕМА СОБЫТИЙ ===
+
+    def register_callback(self, event_type: str, callback: Callable):
+        """Регистрация callback для события"""
+        if event_type in self._ui_callbacks:
+            self._ui_callbacks[event_type].append(callback)
+
+    def _emit_event(self, event_type: str, data: Any = None):
+        """Генерация события"""
+        try:
+            if event_type in self._ui_callbacks:
+                for callback in self._ui_callbacks[event_type]:
+                    try:
+                        callback(data)
+                    except Exception as e:
+                        self.logger.error(f"Ошибка в callback {callback}: {e}")
+        except Exception as e:
+            self.logger.error(f"Ошибка генерации события {event_type}: {e}")
+
+    # === МЕТОДЫ ОЧИСТКИ ===
+
     def cleanup(self):
         """Очистка ресурсов контроллера"""
         try:
             # Очищаем кэш
             self._filter_criteria_cache = None
+            self._ui_update_cache.clear()
+            self._ui_callbacks.clear()
 
             # Очищаем сервисы
             if self.filtering_service and hasattr(self.filtering_service, 'cleanup'):
@@ -1248,70 +1314,128 @@ class MainController:
             if self.sop_manager and hasattr(self.sop_manager, 'cleanup'):
                 self.sop_manager.cleanup()
 
+            # Обнуляем ссылки
+            self.filtering_service = None
+            self.plot_manager = None
+            self.report_generator = None
+            self.sop_manager = None
+
             self.logger.info("MainController очищен")
 
         except Exception as e:
             self.logger.error(f"Ошибка очистки MainController: {e}")
 
-    def _on_file_loaded(self, file_path: str):
-        """КРИТИЧНО ИСПРАВЛЕНО: Обработка успешной загрузки файла"""
+    def get_state(self) -> Dict[str, Any]:
+        """Получение состояния контроллера"""
+        return {
+            'is_processing': self.is_processing,
+            'is_loading': self.is_loading,
+            'current_file': self.current_file_path,
+            'has_data': self._has_data(),
+            'cache_size': len(self._ui_update_cache),
+            'callbacks_count': sum(len(callbacks) for callbacks in self._ui_callbacks.values())
+        }
+
+    def __str__(self):
+        return f"MainController(processing={self.is_processing}, has_data={self._has_data()})"
+
+    def __repr__(self):
+        return self.__str__()
+
+    def set_time_panel(self, time_panel):
+        """Установка TimePanel"""
+        self.time_panel = time_panel
+        self.logger.info("TimePanel установлен в контроллере")
+
+    def set_filter_panel(self, filter_panel):
+        """Установка FilterPanel"""
+        self.filter_panel = filter_panel
+        self.logger.info("FilterPanel установлен в контроллере")
+
+    def set_parameter_panel(self, parameter_panel):
+        """Установка ParameterPanel"""
+        self.parameter_panel = parameter_panel
+        self.logger.info("ParameterPanel установлен в контроллере")
+
+    def set_action_panel(self, action_panel):
+        """Установка ActionPanel"""
+        self.action_panel = action_panel
+        self.logger.info("ActionPanel установлен в контроллере")
+
+    def load_test_data(self):
+        """Загрузка тестовых данных для проверки UI"""
         try:
-            self.logger.info("=== НАЧАЛО ОБРАБОТКИ ЗАГРУЖЕННОГО ФАЙЛА ===")
+            test_params = [
+                {
+                    'signal_code': 'TEST_PARAM_1',
+                    'description': 'Тестовый параметр телеметрии 1',
+                    'line': 'L_CAN_BLOK_CH',
+                    'wagon': '1',
+                    'signal_type': 'B',
+                    'data_type': 'BOOL'
+                },
+                {
+                    'signal_code': 'TEST_PARAM_2', 
+                    'description': 'Тестовый параметр телеметрии 2',
+                    'line': 'L_CAN_ICU_CH_A',
+                    'wagon': '2',
+                    'signal_type': 'BY',
+                    'data_type': 'BYTE'
+                },
+                {
+                    'signal_code': 'TEST_PARAM_3',
+                    'description': 'Тестовый параметр телеметрии 3', 
+                    'line': 'L_CAN_POS_CH',
+                    'wagon': '1',
+                    'signal_type': 'W',
+                    'data_type': 'WORD'
+                },
+                {
+                    'signal_code': 'TEST_PARAM_4',
+                    'description': 'Тестовый параметр телеметрии 4',
+                    'line': 'L_CAN_BLOK_CH',
+                    'wagon': '3',
+                    'signal_type': 'DW',
+                    'data_type': 'DWORD'
+                },
+                {
+                    'signal_code': 'TEST_PARAM_5',
+                    'description': 'Тестовый параметр телеметрии 5',
+                    'line': 'L_CAN_ICU_CH_B',
+                    'wagon': '2',
+                    'signal_type': 'F',
+                    'data_type': 'FLOAT'
+                }
+            ]
 
-            # ШАГ 1: Получаем временной диапазон из модели
-            self.logger.info("Получение полей времени из модели...")
-            time_fields = None
-
-            # Множественные попытки получения времени
-            if hasattr(self.model, 'get_time_range_fields'):
-                time_fields = self.model.get_time_range_fields()
-                self.logger.info(
-                    f"Получены поля через get_time_range_fields: {time_fields}")
-
-            # Fallback через _time_range_fields
-            if not time_fields and hasattr(self.model, '_time_range_fields'):
-                time_fields = self.model._time_range_fields
-                self.logger.info(
-                    f"Получены поля через _time_range_fields: {time_fields}")
-
-            # Fallback через telemetry_data
-            if not time_fields and hasattr(self.model, '_telemetry_data') and self.model._telemetry_data:
-                try:
-                    formatted_range = self.model._telemetry_data.get_formatted_time_range()
-                    time_fields = {
-                        'from_time': formatted_range['from_time'],
-                        'to_time': formatted_range['to_time'],
-                        'duration': formatted_range['duration'],
-                        'total_records': self.model._telemetry_data.records_count
-                    }
-                    self.logger.info(
-                        f"Получены поля через telemetry_data: {time_fields}")
-                except Exception as e:
-                    self.logger.error(
-                        f"Ошибка получения времени через telemetry_data: {e}")
-
-            # ШАГ 2: Обновляем поля времени в UI
-            if time_fields and time_fields.get('from_time') and time_fields.get('to_time'):
-                self.logger.info("=== ОБНОВЛЕНИЕ ПОЛЕЙ ВРЕМЕНИ В UI ===")
-                success = self._update_time_panel_fields(time_fields)
-                if success:
-                    self.logger.info(
-                        f"✅ UI поля времени обновлены: {time_fields['from_time']} - {time_fields['to_time']}")
+            self.logger.info(f"Загрузка тестовых данных: {len(test_params)} параметров")
+            
+            # Обновляем UI через правильные пути
+            if hasattr(self.view, 'ui_components') and self.view.ui_components:
+                if hasattr(self.view.ui_components, 'parameter_panel'):
+                    self.view.ui_components.parameter_panel.update_parameters(test_params)
+                    self.logger.info("✅ Тестовые данные переданы в ParameterPanel")
                 else:
-                    self.logger.error(
-                        "❌ Не удалось обновить поля времени в UI")
+                    self.logger.error("❌ parameter_panel не найден в ui_components")
             else:
-                self.logger.warning(
-                    "⚠️ Временной диапазон не получен или пустой")
-                self.logger.debug(f"time_fields = {time_fields}")
+                self.logger.error("❌ ui_components не найден в view")
+            
+            # Обновляем время
+            from datetime import datetime
+            now = datetime.now()
+            time_fields = {
+                'from_time': now.strftime('%Y-%m-%d %H:%M:%S'),
+                'to_time': now.strftime('%Y-%m-%d %H:%M:%S'),
+                'duration': '00:00:00',
+                'total_records': len(test_params)
+            }
+            
+            if hasattr(self, '_update_time_panel_fields'):
+                self._update_time_panel_fields(time_fields)
 
-            # ШАГ 3: Обработка параметров
-            self.logger.info("=== ОБРАБОТКА ПАРАМЕТРОВ ===")
-            self._handle_successful_load()
-
-            self.logger.info("=== ОБРАБОТКА ФАЙЛА ЗАВЕРШЕНА ===")
+            self.logger.info("✅ Тестовые данные загружены успешно")
 
         except Exception as e:
-            self.logger.error(f"Ошибка обработки загруженного файла: {e}")
+            self.logger.error(f"Ошибка загрузки тестовых данных: {e}")
             import traceback
             traceback.print_exc()

@@ -15,6 +15,7 @@ class ParameterPanel(ttk.Frame):
         super().__init__(parent)
         self.controller = controller
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.info("ParameterPanel: __init__ вызван")
 
         # Данные параметров
         self.all_parameters: List[Dict[str, Any]] = []
@@ -38,25 +39,33 @@ class ParameterPanel(ttk.Frame):
         self.is_loading = False
 
         self._setup_ui()
+        self.logger.info("ParameterPanel: _setup_ui завершён")
         self.logger.info("ParameterPanel инициализирован")
 
     def _setup_ui(self):
+        self.logger.info("ParameterPanel: _setup_ui вызван")
         """Настройка пользовательского интерфейса"""
         # Настройка сетки
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)  # Главная область с деревьями
 
         # 1. Поиск по параметрам
+        self.logger.info("ParameterPanel: _create_search_section")
         self._create_search_section()
 
         # 2. Счетчики параметров
+        self.logger.info("ParameterPanel: _create_counters_section")
         self._create_counters_section()
 
         # 3. Основная область с деревьями параметров
+        self.logger.info("ParameterPanel: _create_parameter_trees")
         self._create_parameter_trees()
 
         # 4. Кнопки управления
+        self.logger.info("ParameterPanel: _create_control_buttons")
         self._create_control_buttons()
+
+        self.logger.info("ParameterPanel: _setup_ui завершён")
 
     def _create_search_section(self):
         """Создание секции поиска"""
@@ -335,19 +344,43 @@ class ParameterPanel(ttk.Frame):
     # === МЕТОДЫ УПРАВЛЕНИЯ ПАРАМЕТРАМИ ===
 
     def update_parameters(self, parameters: List[Dict[str, Any]]):
-        """Обновление списка всех параметров"""
+        """Обновление списка всех параметров С ДИАГНОСТИКОЙ"""
         try:
+            self.logger.info(f"📊 update_parameters вызван с {len(parameters)} параметрами")
+            
+            if not parameters:
+                self.logger.warning("⚠️ Получен пустой список параметров!")
+                return
+            
+            # Диагностика первого параметра
+            if parameters:
+                first_param = parameters[0]
+                self.logger.info(f"📋 Первый параметр: {first_param}")
+                self.logger.info(f"🔑 Ключи параметра: {list(first_param.keys())}")
+            
             self.all_parameters = parameters.copy()
             self.filtered_parameters = parameters.copy()
-
+            
+            self.logger.info(f"💾 Данные сохранены: all={len(self.all_parameters)}, filtered={len(self.filtered_parameters)}")
+            
+            # Проверяем tree_all
+            if not self.tree_all:
+                self.logger.error("❌ tree_all не инициализировано!")
+                return
+            
             self._populate_parameters_tree()
             self._update_counters()
-
-            self.logger.info(
-                f"Обновлен список параметров: {len(parameters)} элементов")
+            
+            # Проверяем результат
+            tree_items = len(self.tree_all.get_children())
+            self.logger.info(f"🌳 Элементов в дереве после заполнения: {tree_items}")
+            
+            self.logger.info(f"✅ update_parameters завершен успешно: {len(parameters)} элементов")
 
         except Exception as e:
-            self.logger.error(f"Ошибка обновления параметров: {e}")
+            self.logger.error(f"❌ Ошибка обновления параметров: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _populate_parameters_tree(self):
         """Заполнение дерева всех параметров"""
@@ -677,3 +710,20 @@ class ParameterPanel(ttk.Frame):
 
         except Exception as e:
             self.logger.error(f"Ошибка очистки ParameterPanel: {e}")
+
+    # === ПУБЛИЧНЫЙ МЕТОД ДЛЯ КОНТРОЛЛЕРА ===
+    def update_tree_all_params(self, parameters: Optional[List[Dict[str, Any]]] = None):
+        """Публичный метод для обновления дерева всех параметров (вызывается контроллером)"""
+        try:
+            if parameters is not None:
+                self.logger.info(f"update_tree_all_params: получено {len(parameters)} параметров на входе")
+                self.all_parameters = parameters.copy()
+                self.filtered_parameters = parameters.copy()
+            else:
+                self.logger.info(f"update_tree_all_params: обновление с текущими параметрами ({len(self.all_parameters)})")
+
+            self._populate_parameters_tree()
+            self._update_counters()
+            self.logger.info(f"update_tree_all_params: отображено {len(self.filtered_parameters)} параметров после фильтрации")
+        except Exception as e:
+            self.logger.error(f"Ошибка в update_tree_all_params: {e}")
