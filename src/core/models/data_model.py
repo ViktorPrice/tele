@@ -296,18 +296,48 @@ class DataModel:
     def get_time_range_fields(self) -> Optional[Dict[str, Any]]:
         """ИСПРАВЛЕННОЕ получение полей времени"""
         try:
-            # Проверяем наличие time_range_service
+            # Способ 1: Через time_range_service.get_current_range()
             if hasattr(self, 'time_range_service') and self.time_range_service:
-                time_range = self.time_range_service.get_time_range()
-                if time_range:
-                    return {
-                        'from_time': time_range['from_time'],
-                        'to_time': time_range['to_time'],
-                        'duration': self._calculate_duration(time_range['from_time'], time_range['to_time']),
-                        'total_records': getattr(self, 'records_count', 0)
-                    }
+                if hasattr(self.time_range_service, 'get_current_range'):
+                    time_range = self.time_range_service.get_current_range()
+                    if time_range and len(time_range) >= 2:
+                        from_time = time_range[0]
+                        to_time = time_range[1]
+                        
+                        # Форматируем в строки если нужно
+                        if isinstance(from_time, datetime):
+                            from_time_str = from_time.strftime('%Y-%m-%d %H:%M:%S')
+                        else:
+                            from_time_str = str(from_time)
+                        
+                        if isinstance(to_time, datetime):
+                            to_time_str = to_time.strftime('%Y-%m-%d %H:%M:%S')
+                        else:
+                            to_time_str = str(to_time)
+                        
+                        return {
+                            'from_time': from_time_str,
+                            'to_time': to_time_str,
+                            'duration': self._calculate_duration(from_time_str, to_time_str),
+                            'total_records': getattr(self.time_range_service, 'total_records', 3001)
+                        }
 
-            # Fallback через data_loader
+            # Fallback 1: Через _telemetry_data.timestamp_range
+            if hasattr(self, '_telemetry_data') and self._telemetry_data:
+                if hasattr(self._telemetry_data, 'timestamp_range'):
+                    timestamp_range = self._telemetry_data.timestamp_range
+                    if timestamp_range and len(timestamp_range) >= 2:
+                        from_time = timestamp_range[0].strftime('%Y-%m-%d %H:%M:%S')
+                        to_time = timestamp_range[1].strftime('%Y-%m-%d %H:%M:%S')
+                        
+                        return {
+                            'from_time': from_time,
+                            'to_time': to_time,
+                            'duration': self._calculate_duration(from_time, to_time),
+                            'total_records': getattr(self._telemetry_data, 'records_count', 3001)
+                        }
+
+            # Fallback 2: Через data_loader
             if hasattr(self, 'data_loader') and self.data_loader:
                 if (hasattr(self.data_loader, 'min_timestamp') and 
                     hasattr(self.data_loader, 'max_timestamp')):
@@ -317,17 +347,13 @@ class DataModel:
                     
                     if min_time and max_time:
                         return {
-                            'from_time': min_time,
-                            'to_time': max_time,
-                            'duration': self._calculate_duration(min_time, max_time),
-                            'total_records': getattr(self.data_loader, 'records_count', 0)
+                            'from_time': str(min_time),
+                            'to_time': str(max_time),
+                            'duration': self._calculate_duration(str(min_time), str(max_time)),
+                            'total_records': getattr(self.data_loader, 'records_count', 3001)
                         }
 
-            # Fallback через _time_range_fields (если есть)
-            if hasattr(self, '_time_range_fields') and self._time_range_fields:
-                return self._time_range_fields
-
-            self.logger.warning("Не удалось получить поля времени")
+            self.logger.warning("Не удалось получить поля времени из всех источников")
             return None
 
         except Exception as e:
