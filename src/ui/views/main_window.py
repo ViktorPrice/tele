@@ -2,6 +2,11 @@
 """
 Главное окно приложения БЕЗ legacy зависимостей и с упрощенной архитектурой
 """
+from ..utils.styles import StyleManager
+from ..services.state_manager import StateManager
+from ..services.ui_coordinator import UICoordinator
+from ..factories.component_factory import ComponentFactory
+from ..layout.layout_manager import LayoutManager
 import tkinter as tk
 from tkinter import ttk
 import logging
@@ -15,13 +20,8 @@ import time
 root_path = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(root_path))
 
-from ..layout.layout_manager import LayoutManager
-from ..factories.component_factory import ComponentFactory
-from ..services.ui_coordinator import UICoordinator
-from ..services.state_manager import StateManager
 
 # ИСПРАВЛЕНО: Используем новый StyleManager вместо legacy
-from ..utils.styles import StyleManager
 
 # Изменения:
 # - Было: Зависимость от legacy base_ui.StyleManager
@@ -29,30 +29,34 @@ from ..utils.styles import StyleManager
 # - Влияние: Устранена legacy зависимость
 # - REVIEW NEEDED: Проверить совместимость методов StyleManager
 
+
 class MainWindow:
     """Главное окно приложения с упрощенной архитектурой"""
-    
+
     def __init__(self, root):
         self.root = root
         self.controller = None
         self.logger = logging.getLogger(self.__class__.__name__)
-        
+
         # Сервисы
         self.layout_manager = LayoutManager(root)
         self.component_factory = ComponentFactory()
         self.ui_coordinator = UICoordinator()
         self.state_manager = StateManager()
-        
+
+        # UIComponents менеджер
+        self.ui_components: Optional[UIComponents] = None
+
         # Компоненты UI
         self.components: Dict[str, Any] = {}
-        
+
         # Очередь для обработки событий
         self.event_queue = Queue()
-        
+
         # Кэш состояния UI
         self._ui_state_cache = {}
         self._last_state_update = 0
-        
+
         self.logger.info("MainWindow инициализировано")
 
     def setup(self):
@@ -62,21 +66,21 @@ class MainWindow:
             style_manager = StyleManager()
             style_manager.apply_theme('light')
             self.logger.info("Стили UI настроены")
-            
+
             # Настройка главного окна
             self._configure_main_window()
-            
+
             # Создание основного layout
             self.layout_manager.create_main_layout()
-            
+
             # Создаем заглушки компонентов сразу
             self._create_placeholder_components()
-            
+
             # Запуск обработки событий
             self._start_event_processing()
-            
+
             self.logger.info("UI настроен с заглушками компонентов")
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка настройки UI: {e}")
             raise
@@ -100,30 +104,32 @@ class MainWindow:
                 'actions': {'text': 'Действия (ожидание...)', 'row': 4},
                 'visualization': {'text': 'Графики (ожидание...)', 'row': 5}
             }
-            
+
             # Создание заглушек
             for name, config in placeholder_config.items():
                 container = self.layout_manager.get_container(name)
                 if container:
                     placeholder = ttk.Label(
-                        container, 
+                        container,
                         text=config['text'],
                         font=('Arial', 10),
                         foreground='gray'
                     )
                     placeholder.grid(row=0, column=0, padx=20, pady=20)
                     self.components[f'{name}_placeholder'] = placeholder
-                    
+
                     # Размещение контейнера
                     container.grid(
-                        row=config['row'], 
-                        sticky='ew' if name not in ['parameters', 'visualization'] else 'nsew',
-                        padx=10, 
+                        row=config['row'],
+                        sticky='ew' if name not in [
+                            'parameters', 'visualization'] else 'nsew',
+                        padx=10,
                         pady=5
                     )
-            
-            self.logger.info(f"Создано {len(self.components)} заглушек компонентов")
-            
+
+            self.logger.info(
+                f"Создано {len(self.components)} заглушек компонентов")
+
         except Exception as e:
             self.logger.error(f"Ошибка создания заглушек: {e}")
 
@@ -132,11 +138,11 @@ class MainWindow:
         if self.controller is None:
             self.logger.error("Контроллер не установлен")
             return
-        
+
         try:
             # Удаляем заглушки
             self._remove_placeholders()
-            
+
             # Создание компонентов через фабрику
             component_creators = {
                 'upload_panel': (self.component_factory.create_upload_panel, 'upload'),
@@ -146,7 +152,7 @@ class MainWindow:
                 'action_panel': (self.component_factory.create_action_panel, 'actions'),
                 'visualization': (self.component_factory.create_visualization_area, 'visualization')
             }
-            
+
             # Создание и размещение компонентов
             for component_name, (creator_func, container_name) in component_creators.items():
                 container = self.layout_manager.get_container(container_name)
@@ -155,10 +161,12 @@ class MainWindow:
                     if component:
                         component.grid(row=0, column=0, sticky="nsew")
                         self.components[component_name] = component
-                        self.logger.debug(f"Создан компонент: {component_name}")
-            
-            self.logger.info(f"Создано {len(self.components)} настоящих компонентов UI")
-            
+                        self.logger.debug(
+                            f"Создан компонент: {component_name}")
+
+            self.logger.info(
+                f"Создано {len(self.components)} настоящих компонентов UI")
+
         except Exception as e:
             self.logger.error(f"Ошибка создания настоящих компонентов: {e}")
 
@@ -175,7 +183,7 @@ class MainWindow:
         for name, component in self.components.items():
             if not name.endswith('_placeholder'):
                 self.ui_coordinator.register_component(name, component)
-        
+
         # Настройка связей между компонентами
         self.ui_coordinator.setup_component_links()
 
@@ -186,17 +194,22 @@ class MainWindow:
     def set_controller(self, controller):
         """ИСПРАВЛЕННАЯ установка контроллера с заменой заглушек"""
         self.controller = controller
-        
+
+        # Создаем UIComponents менеджер с контроллером
+        from ..components.ui_components import UIComponents
+        self.ui_components = UIComponents(self.root, controller)
+
         # Создаем настоящие компоненты вместо заглушек
         self._create_real_components()
-        
+
         # Настройка координации
         self._setup_coordination()
-        
+
         # Передача контроллера всем компонентам
         self._setup_controller_links()
-        
-        self.logger.info("Контроллер установлен, заглушки заменены на настоящие компоненты")
+
+        self.logger.info(
+            "Контроллер установлен, заглушки заменены на настоящие компоненты")
 
     def _setup_controller_links(self):
         """Установка связей с контроллером"""
@@ -269,13 +282,14 @@ class MainWindow:
     def update_tree_all_params(self, params: list):
         """ОПТИМИЗИРОВАННОЕ обновление дерева всех параметров"""
         params_hash = hash(str(len(params)))  # Простой хэш для сравнения
-        
+
         if self._should_update_ui('all_params', params_hash):
             if 'parameter_panel' in self.components:
                 parameter_panel = self.components['parameter_panel']
                 if hasattr(parameter_panel, 'update_tree_all_params'):
                     parameter_panel.update_tree_all_params(params)
-                    self.logger.debug(f"Обновлено дерево всех параметров: {len(params)} элементов")
+                    self.logger.debug(
+                        f"Обновлено дерево всех параметров: {len(params)} элементов")
             self._cache_ui_state('all_params', params_hash)
 
     def update_tree_selected_params(self, params: list):
@@ -288,7 +302,7 @@ class MainWindow:
     def update_line_checkboxes(self, lines: list):
         """КЭШИРОВАННОЕ обновление чекбоксов линий"""
         lines_hash = hash(tuple(sorted(lines)))
-        
+
         if self._should_update_ui('line_checkboxes', lines_hash):
             if 'filter_panel' in self.components:
                 filter_panel = self.components['filter_panel']
@@ -315,16 +329,16 @@ class MainWindow:
     def _should_update_ui(self, key: str, value: Any) -> bool:
         """Проверка необходимости обновления UI"""
         current_time = time.time()
-        
+
         # Обновляем не чаще чем раз в 50мс
         if current_time - self._last_state_update < 0.05:
             return False
-        
+
         # Проверяем изменение значения
         if key in self._ui_state_cache:
             if self._ui_state_cache[key] == value:
                 return False
-        
+
         return True
 
     def _cache_ui_state(self, key: str, value: Any):
@@ -337,15 +351,15 @@ class MainWindow:
         try:
             processed = 0
             max_events_per_cycle = 5  # Ограничиваем количество событий за цикл
-            
+
             while not self.event_queue.empty() and processed < max_events_per_cycle:
                 task, data = self.event_queue.get_nowait()
                 self._handle_event(task, data)
                 processed += 1
-                
+
         except Exception as e:
             self.logger.error(f"Ошибка в очереди событий: {e}")
-        
+
         # Повторный запуск через 100мс
         self.root.after(100, self._process_event_queue)
 
@@ -363,7 +377,7 @@ class MainWindow:
             'update_line_checkboxes': self.update_line_checkboxes,
             'create_plot_tabs': self.create_plot_tabs_from_sop
         }
-        
+
         handler = event_handlers.get(task)
         if handler:
             try:
@@ -389,22 +403,22 @@ class MainWindow:
                 parameter_panel = self.components['parameter_panel']
                 if hasattr(parameter_panel, 'clear_all'):
                     parameter_panel.clear_all()
-            
+
             # Очистка графиков
             if 'visualization' in self.components:
                 visualization = self.components['visualization']
                 if hasattr(visualization, 'clear_all'):
                     visualization.clear_all()
-            
+
             # Очистка кэша
             self._ui_state_cache.clear()
-            
+
             # Сброс счетчиков
             self.update_filtered_count(0)
             self.update_status("Интерфейс очищен")
-            
+
             self.logger.info("UI очищен")
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка очистки UI: {e}")
 
@@ -415,23 +429,23 @@ class MainWindow:
             for component in self.components.values():
                 if hasattr(component, 'cleanup'):
                     component.cleanup()
-            
+
             # Очистка очереди
             while not self.event_queue.empty():
                 try:
                     self.event_queue.get_nowait()
                 except:
                     break
-            
+
             # Очистка кэша
             self._ui_state_cache.clear()
-            
+
             # Очистка сервисов
             self.ui_coordinator.cleanup()
             self.state_manager.cleanup()
-            
+
             self.logger.info("Ресурсы UI очищены")
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка очистки ресурсов UI: {e}")
 
@@ -439,23 +453,23 @@ class MainWindow:
     @property
     def upload_panel(self):
         return self.components.get('upload_panel')
-    
+
     @property
     def time_panel(self):
         return self.components.get('time_panel')
-    
+
     @property
     def filter_panel(self):
         return self.components.get('filter_panel')
-    
+
     @property
     def parameter_panel(self):
         return self.components.get('parameter_panel')
-    
+
     @property
     def action_panel(self):
         return self.components.get('action_panel')
-    
+
     @property
     def plots_notebook(self):
         visualization = self.components.get('visualization')
@@ -466,3 +480,38 @@ class MainWindow:
 
     def __repr__(self):
         return self.__str__()
+
+    # Дополнение к src/ui/views/main_window.py
+    """
+    Интеграция TimePanel в MainWindow
+    """
+
+    def _create_time_panel_frame(self, parent):
+        """Создание фрейма панели времени"""
+        time_frame = ttk.LabelFrame(
+            parent, text="Временной диапазон", padding="5")
+
+        # Создаем time_panel через factory
+        if hasattr(self, 'component_factory'):
+            self.time_panel = self.component_factory.create_time_panel(
+                time_frame, self.controller
+            )
+        else:
+            # Fallback
+            from ..components.time_panel import TimePanel
+            self.time_panel = TimePanel(time_frame, self.controller)
+
+        self.time_panel.pack(fill="both", expand=True)
+
+        return time_frame
+
+    def get_component(self, component_name: str):
+        """Получение компонента по имени"""
+        components = {
+            'time_panel': getattr(self, 'time_panel', None),
+            'filter_panel': getattr(self, 'filter_panel', None),
+            'parameter_panel': getattr(self, 'parameter_panel', None),
+            'action_panel': getattr(self, 'action_panel', None)
+        }
+
+        return components.get(component_name)

@@ -1,470 +1,413 @@
-# src/infrastructure/data/csv_loader.py - ИСПРАВЛЕННЫЕ ИМПОРТЫ
 """
-Загрузчик CSV файлов с исправленными зависимостями
+Загрузчик CSV данных с исправлениями для сложной структуры файлов (ПОЛНАЯ ВЕРСИЯ)
 """
 import pandas as pd
-import chardet
 import logging
-from pathlib import Path
-from typing import Tuple, Dict, Optional, List, Any
-from datetime import datetime
-import hashlib
-import json
+import chardet
+from typing import Dict, Any, Optional, Tuple
+from datetime import datetime, timedelta
+import re
 
 from ...core.domain.entities.telemetry_data import TelemetryData
-from ...core.repositories.data_repository import DataRepository
 
-# ИСПРАВЛЕНО: Правильные импорты
-try:
-    from .parsers.csv_parser import CSVParser
-    from .validators.data_validator import DataValidator
-    from .processors.timestamp_processor import TimestampProcessor
-except ImportError as e:
-    # Fallback если модули отсутствуют
-    logging.getLogger(__name__).warning(f"Импорт модулей: {e}")
-    
-    class CSVParser:
-        def parse_csv(self, file_path: str, **kwargs):
-            return pd.read_csv(file_path, **kwargs)
-    
-    class DataValidator:
-        def validate_dataframe(self, df):
-            from dataclasses import dataclass
-            @dataclass
-            class ValidationResult:
-                is_valid: bool = True
-                warnings: List = None
-                errors: List = None
-            return ValidationResult()
-    
-    class TimestampProcessor:
-        def process_timestamps(self, df):
-            if 'timestamp' in df.columns:
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
-            return df
-        
-        def get_time_range(self, df):
-            if 'timestamp' in df.columns:
-                return df['timestamp'].min(), df['timestamp'].max()
-            return datetime.now(), datetime.now()
 
 class CSVDataLoader:
-    """Загрузчик CSV файлов с автоопределением параметров"""
-    
-    def __init__(self, cache_enabled: bool = True):
+    """ПОЛНЫЙ загрузчик CSV данных с обработкой сложной структуры"""
+
+    def __init__(self):
         self.logger = logging.getLogger(self.__class__.__name__)
-        
-        # Компоненты обработки
-        self.csv_parser = CSVParser()
-        self.data_validator = DataValidator()
-        self.timestamp_processor = TimestampProcessor()
-        
-        # Кэширование
-        self.cache_enabled = cache_enabled
-        self._detection_cache: Dict[str, Dict] = {}
-        
+
         # Состояние для совместимости с legacy
-        self.parameters: List[Dict[str, Any]] = []
-        self.lines: set = set()
-        self.start_time: Optional[datetime] = None
-        self.end_time: Optional[datetime] = None
-        self.data: Optional[pd.DataFrame] = None
-        
+        self.parameters = []
+        self.lines = set()
+        self.start_time = None
+        self.end_time = None
+        self.data = None
+
         self.logger.info("CSVDataLoader инициализирован")
-    
-    def load_csv(self, file_path: str) -> TelemetryData:
-        """ИСПРАВЛЕННАЯ загрузка CSV с полной обработкой"""
-        try:
-            self.logger.info(f"Загрузка CSV: {file_path}")
-            
-            # Проверка существования файла
-            if not Path(file_path).exists():
-                raise FileNotFoundError(f"Файл не найден: {file_path}")
-            
-            # Получение параметров файла (с кэшированием)
-            file_params = self._get_file_parameters(file_path)
-            
-            # Парсинг метаданных
-            metadata = self._parse_metadata(file_path, file_params['encoding'])
-            
-            # Загрузка данных
-            raw_data = self._load_raw_data(file_path, file_params)
-            
-            # Валидация данных
-            validation_result = self.data_validator.validate_dataframe(raw_data)
-            if not validation_result.is_valid:
-                self.logger.warning(f"Данные содержат проблемы: {validation_result.warnings}")
-            
-            # Обработка временных меток
-            processed_data = self.timestamp_processor.process_timestamps(raw_data)
-            
-            # Создание TelemetryData
-            telemetry_data = self._create_telemetry_data(
-                processed_data, metadata, file_path
-            )
-            
-            # Сохранение для совместимости с legacy
-            self._update_legacy_attributes(telemetry_data)
-            
-            self.logger.info(f"CSV успешно загружен: {len(processed_data)} строк")
-            return telemetry_data
-            
-        except Exception as e:
-            self.logger.error(f"Ошибка загрузки CSV {file_path}: {e}")
-            raise
-    
-    # ДОБАВЛЕН метод для совместимости
-    def filter_by_time_range(self, start_time: datetime, end_time: datetime) -> pd.DataFrame:
-        """Фильтрация данных по временному диапазону"""
-        if self.data is not None:
-            mask = (self.data['timestamp'] >= start_time) & (self.data['timestamp'] <= end_time)
-            return self.data[mask]
-        return pd.DataFrame()
-    
-    # ДОБАВЛЕН метод для совместимости с legacy
-    def filter_changed_params(self, start_time, end_time) -> List[Dict[str, Any]]:
-        """Фильтрация изменяемых параметров для совместимости"""
-        try:
-            from datetime import datetime
-            
-            # Преобразование строк в datetime если необходимо
-            if isinstance(start_time, str):
-                start_time = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
-            if isinstance(end_time, str):
-                end_time = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
-            
-            self.logger.info(f"Фильтрация изменяемых параметров в диапазоне {start_time} - {end_time}")
-            
-            if not hasattr(self, 'data') or self.data is None:
-                self.logger.warning("Нет данных для фильтрации")
-                return []
-            
-            # Фильтрация данных по временному диапазону
-            time_mask = (self.data['timestamp'] >= start_time) & (self.data['timestamp'] <= end_time)
-            filtered_data = self.data[time_mask]
-            
-            self.logger.info(f"Найдено {len(filtered_data)} строк данных в временном диапазоне")
-            
-            # Поиск изменяемых параметров
-            changed_params = []
-            exclude_columns = ['timestamp', 'TIMESTAMP', 'index']
-            
-            for column in self.data.columns:
-                if column not in exclude_columns:
-                    # Проверяем изменяемость параметра в диапазоне
-                    column_data = filtered_data[column].dropna()
-                    if len(column_data) > 1:
-                        # Параметр считается изменяемым если есть различия в значениях
-                        unique_values = column_data.nunique()
-                        if unique_values > 1:
-                            # Создаем информацию о параметре
-                            param_info = self._parse_parameter_info(column)
-                            if param_info:
-                                changed_params.append(param_info)
-            
-            self.logger.info(f"Найдено {len(changed_params)} изменяемых параметров")
-            return changed_params
-            
-        except Exception as e:
-            self.logger.error(f"Ошибка фильтрации изменяемых параметров: {e}")
-            return []
-    
-    def _get_file_parameters(self, file_path: str) -> Dict[str, Any]:
-        """Получение параметров файла с кэшированием"""
-        try:
-            # Генерация ключа кэша
-            cache_key = self._generate_cache_key(file_path)
-            
-            # Проверка кэша
-            if self.cache_enabled and cache_key in self._detection_cache:
-                self.logger.debug(f"Использование кэшированных параметров для {file_path}")
-                return self._detection_cache[cache_key]
-            
-            # Определение параметров
-            file_params = {
-                'encoding': self._detect_encoding(file_path),
-                'delimiter': ',',
-                'skiprows': 0
-            }
-            
-            # Определение разделителя и пропускаемых строк
-            file_params['delimiter'] = self._detect_delimiter(
-                file_path, file_params['encoding']
-            )
-            file_params['skiprows'] = self._detect_skiprows(
-                file_path, file_params['encoding'], file_params['delimiter']
-            )
-            
-            # Сохранение в кэш
-            if self.cache_enabled:
-                self._detection_cache[cache_key] = file_params
-            
-            return file_params
-            
-        except Exception as e:
-            self.logger.error(f"Ошибка определения параметров файла: {e}")
-            # Возвращаем параметры по умолчанию
-            return {
-                'encoding': 'utf-8',
-                'delimiter': ',',
-                'skiprows': 0
-            }
-    
-    def _generate_cache_key(self, file_path: str) -> str:
-        """Генерация ключа кэша на основе файла"""
-        try:
-            file_stat = Path(file_path).stat()
-            key_data = f"{file_path}_{file_stat.st_size}_{file_stat.st_mtime}"
-            return hashlib.md5(key_data.encode()).hexdigest()
-        except Exception:
-            return hashlib.md5(file_path.encode()).hexdigest()
-    
+
     def _detect_encoding(self, file_path: str) -> str:
-        """ОПТИМИЗИРОВАННОЕ определение кодировки"""
+        """НОВОЕ: Автоопределение кодировки файла"""
         try:
-            # Читаем только первые 10KB для определения кодировки
-            with open(file_path, 'rb') as file:
-                raw_data = file.read(10240)
-            
-            if not raw_data:
-                return 'utf-8'
-            
-            # Определение кодировки
-            detection = chardet.detect(raw_data)
-            encoding = detection.get('encoding', 'utf-8')
-            confidence = detection.get('confidence', 0)
-            
-            # Проверка надежности определения
-            if confidence < 0.7:
-                self.logger.warning(f"Низкая уверенность в кодировке: {confidence}")
-                # Пробуем стандартные кодировки
-                for fallback_encoding in ['utf-8', 'windows-1251', 'cp1251']:
+            # Читаем первые 10KB для определения кодировки
+            with open(file_path, 'rb') as f:
+                raw_data = f.read(10240)
+
+            # Используем chardet для определения кодировки
+            detected = chardet.detect(raw_data)
+            encoding = detected.get('encoding', 'utf-8')
+            confidence = detected.get('confidence', 0)
+
+            self.logger.info(
+                f"Обнаружена кодировка: {encoding} (уверенность: {confidence:.2f})")
+
+            # Приоритетный список кодировок для fallback
+            fallback_encodings = [
+                encoding,
+                'cp1251',
+                'windows-1251',
+                'utf-8',
+                'latin1',
+                'cp1252'
+            ]
+
+            # Тестируем каждую кодировку
+            for test_encoding in fallback_encodings:
+                if test_encoding:
                     try:
-                        with open(file_path, 'r', encoding=fallback_encoding) as f:
-                            f.read(1024)  # Пробуем прочитать
-                        encoding = fallback_encoding
-                        break
-                    except UnicodeDecodeError:
+                        with open(file_path, 'r', encoding=test_encoding) as f:
+                            # Пытаемся прочитать первые 1000 символов
+                            test_content = f.read(1000)
+
+                        self.logger.info(
+                            f"Успешно использована кодировка: {test_encoding}")
+                        return test_encoding
+
+                    except (UnicodeDecodeError, UnicodeError):
+                        self.logger.debug(
+                            f"Кодировка {test_encoding} не подошла")
                         continue
-            
-            self.logger.debug(f"Определена кодировка: {encoding} (уверенность: {confidence})")
-            return encoding
-            
+
+            # Последний резерв - ошибки игнорируем
+            self.logger.warning(
+                "Использована кодировка utf-8 с игнорированием ошибок")
+            return 'utf-8'
+
         except Exception as e:
             self.logger.error(f"Ошибка определения кодировки: {e}")
             return 'utf-8'
-    
-    def _detect_delimiter(self, file_path: str, encoding: str) -> str:
-        """УЛУЧШЕННОЕ определение разделителя"""
+
+    def _safe_file_read(self, file_path: str, encoding: str) -> list:
+        """НОВОЕ: Безопасное чтение файла с обработкой ошибок кодировки"""
         try:
-            # Читаем первые несколько строк
-            with open(file_path, 'r', encoding=encoding) as file:
-                sample_lines = [file.readline() for _ in range(5)]
-            
-            # Кандидаты разделителей
-            delimiters = [',', ';', '\t', '|']
-            delimiter_scores = {}
-            
-            for delimiter in delimiters:
-                scores = []
-                for line in sample_lines:
-                    if line.strip():
-                        count = line.count(delimiter)
-                        scores.append(count)
-                
-                if scores:
-                    # Оценка: среднее количество + консистентность
-                    avg_count = sum(scores) / len(scores)
-                    consistency = 1.0 - (max(scores) - min(scores)) / (max(scores) + 1)
-                    delimiter_scores[delimiter] = avg_count * consistency
-            
-            # Выбираем лучший разделитель
-            if delimiter_scores:
-                best_delimiter = max(delimiter_scores.items(), key=lambda x: x[1])[0]
-                self.logger.debug(f"Определен разделитель: '{best_delimiter}'")
-                return best_delimiter
-            
-            return ','
-            
+            with open(file_path, 'r', encoding=encoding) as f:
+                return f.readlines()
+        except UnicodeDecodeError as e:
+            self.logger.warning(f"Ошибка кодировки {encoding}: {e}")
+
+            # Пробуем с errors='replace'
+            try:
+                with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+                    lines = f.readlines()
+                self.logger.info(
+                    f"Файл прочитан с заменой проблемных символов")
+                return lines
+            except Exception as e2:
+                self.logger.error(f"Критическая ошибка чтения файла: {e2}")
+                raise
+
+    def _safe_csv_read(self, file_path: str, encoding: str, **kwargs) -> pd.DataFrame:
+        """НОВОЕ: Безопасное чтение CSV с обработкой ошибок кодировки"""
+        try:
+            return pd.read_csv(file_path, encoding=encoding, **kwargs)
+        except UnicodeDecodeError as e:
+            self.logger.warning(f"Ошибка кодировки CSV {encoding}: {e}")
+
+            # Пробуем с errors='replace'
+            try:
+                return pd.read_csv(file_path, encoding=encoding, errors='replace', **kwargs)
+            except Exception as e2:
+                self.logger.error(f"Критическая ошибка чтения CSV: {e2}")
+                raise
+
+    def load_csv(self, file_path: str) -> TelemetryData:
+        """ИСПРАВЛЕННАЯ загрузка CSV с обработкой сложной структуры"""
+        try:
+            self.logger.info(f"Загрузка CSV: {file_path}")
+
+            # КРИТИЧНО: Определяем кодировку файла
+            encoding = self._detect_encoding(file_path)
+
+            # КРИТИЧНО: Предварительный анализ структуры файла
+            header_row, metadata = self._analyze_csv_structure(
+                file_path, encoding)
+
+            if header_row is not None:
+                # Загружаем с правильными заголовками и кодировкой
+                df = self._safe_csv_read(
+                    file_path,
+                    encoding=encoding,
+                    skiprows=header_row,
+                    header=0,
+                    sep=';',  # ВАЖНО: ваш файл использует ';'
+                    low_memory=False
+                )
+            else:
+                # Fallback к стандартной загрузке
+                df = self._safe_csv_read(
+                    file_path,
+                    encoding=encoding,
+                    sep=';',
+                    low_memory=False
+                )
+
+            # КРИТИЧНО: Очистка и предобработка
+            df = self._preprocess_csv_data(df)
+
+            # КРИТИЧНО: Создание TelemetryData с правильными метаданными
+            telemetry_data = self._create_telemetry_data(
+                df, file_path, metadata)
+
+            # Обновляем legacy атрибуты
+            self._update_legacy_attributes(telemetry_data)
+
+            self.logger.info(
+                f"Загружено {len(df)} строк, {len(df.columns)} столбцов")
+
+            return telemetry_data
+
         except Exception as e:
-            self.logger.error(f"Ошибка определения разделителя: {e}")
-            return ','
-    
-    def _detect_skiprows(self, file_path: str, encoding: str, delimiter: str) -> int:
-        """Определение количества пропускаемых строк"""
-        try:
-            with open(file_path, 'r', encoding=encoding) as file:
-                lines = [file.readline() for _ in range(10)]
-            
-            for i, line in enumerate(lines):
-                if line.strip():
-                    # Проверяем, похожа ли строка на заголовок данных
-                    parts = line.split(delimiter)
-                    if len(parts) > 1:
-                        # Если большинство частей не числа, это заголовок
-                        non_numeric = sum(1 for part in parts 
-                                        if not self._is_numeric(part.strip()))
-                        if non_numeric / len(parts) > 0.5:
-                            return i  # Пропускаем строки до заголовка
-            
-            return 0
-            
-        except Exception as e:
-            self.logger.error(f"Ошибка определения skiprows: {e}")
-            return 0
-    
-    def _is_numeric(self, value: str) -> bool:
-        """Проверка является ли значение числовым"""
-        try:
-            float(value)
-            return True
-        except (ValueError, TypeError):
-            return False
-    
-    def _parse_metadata(self, file_path: str, encoding: str) -> Dict[str, Any]:
-        """Парсинг метаданных из файла"""
-        try:
-            metadata = {
-                'file_path': file_path,
-                'file_size': Path(file_path).stat().st_size,
-                'encoding': encoding,
-                'creation_time': datetime.now(),
-                'source': 'csv_loader'
-            }
-            
-            # Попытка извлечь дополнительные метаданные из комментариев
-            with open(file_path, 'r', encoding=encoding) as file:
-                first_lines = [file.readline() for _ in range(5)]
-            
-            for line in first_lines:
-                if line.startswith('#') or line.startswith('//'):
-                    # Парсинг комментариев
-                    comment = line.lstrip('#/').strip()
-                    if ':' in comment:
-                        key, value = comment.split(':', 1)
-                        metadata[key.strip().lower()] = value.strip()
-            
-            return metadata
-            
-        except Exception as e:
-            self.logger.error(f"Ошибка парсинга метаданных: {e}")
-            return {'file_path': file_path, 'encoding': encoding}
-    
-    def _load_raw_data(self, file_path: str, file_params: Dict[str, Any]) -> pd.DataFrame:
-        """Загрузка сырых данных"""
-        try:
-            # Загрузка с обработкой ошибок
-            data = pd.read_csv(
-                file_path,
-                delimiter=file_params['delimiter'],
-                encoding=file_params['encoding'],
-                skiprows=file_params['skiprows'],
-                low_memory=False,
-                na_values=['', 'N/A', 'NULL', 'null', 'NaN'],
-                keep_default_na=True
-            )
-            
-            self.logger.info(f"Загружено {len(data)} строк, {len(data.columns)} столбцов")
-            return data
-            
-        except Exception as e:
-            self.logger.error(f"Ошибка загрузки данных: {e}")
+            self.logger.error(f"Ошибка загрузки CSV {file_path}: {e}")
             raise
-    
-    def _create_telemetry_data(self, data: pd.DataFrame, 
-                             metadata: Dict[str, Any], 
-                             file_path: str) -> TelemetryData:
-        """Создание объекта TelemetryData"""
+
+    def _analyze_csv_structure(self, file_path: str, encoding: str) -> Tuple[Optional[int], Dict[str, str]]:
+        """КРИТИЧНО: Анализ структуры CSV для поиска реальных заголовков"""
+        metadata = {}
+        header_row = None
+
         try:
-            # Определение временного диапазона
-            timestamp_range = self.timestamp_processor.get_time_range(data)
-            
-            # Создание TelemetryData
-            telemetry_data = TelemetryData(
-                data=data,
+            # ИСПРАВЛЕНО: Используем определенную кодировку
+            lines = self._safe_file_read(file_path, encoding)
+
+            for i, line in enumerate(lines):
+                line = line.strip()
+
+                # Извлекаем метаданные из начала файла
+                if ':' in line and not '::' in line and i < 20:
+                    parts = line.split(':', 1)
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip().rstrip(';')
+                        if key and value:
+                            metadata[key] = value
+
+                # КРИТИЧНО: Ищем строку с timestamp параметрами
+                if ('TIMESTAMP_YEAR' in line and 'TIMESTAMP_MONTH' in line) or line.count('::') > 10:
+                    header_row = i
+                    self.logger.info(
+                        f"Найдены реальные заголовки на строке {i}")
+                    break
+
+            # КРИТИЧНО: Обрабатываем специальные метаданные
+            if 'Triggering date' in metadata and 'Triggering time' in metadata:
+                trigger_date = metadata['Triggering date'].strip()
+                trigger_time = metadata['Triggering time'].strip()
+                metadata['real_timestamp'] = f"{trigger_date} {trigger_time}"
+                self.logger.info(
+                    f"Найдено реальное время: {metadata['real_timestamp']}")
+
+            return header_row, metadata
+
+        except Exception as e:
+            self.logger.error(f"Ошибка анализа структуры CSV: {e}")
+            return None, {}
+
+    def _preprocess_csv_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """КРИТИЧНО: Предобработка данных"""
+        try:
+            # Удаляем полностью пустые строки и столбцы
+            df = df.dropna(how='all').dropna(axis=1, how='all')
+
+            # Очистка заголовков от лишних символов
+            df.columns = [str(col).strip() for col in df.columns]
+
+            # КРИТИЧНО: Удаляем строки с метаданными
+            metadata_patterns = ['Date:', 'Case:',
+                                 'Vehicle number:', 'Sampling period:']
+            for pattern in metadata_patterns:
+                if len(df) > 0 and len(df.columns) > 0:
+                    mask = df.iloc[:, 0].astype(
+                        str).str.contains(pattern, na=False)
+                    df = df[~mask]
+
+            # Конвертируем числовые столбцы
+            for col in df.columns:
+                if col != 'timestamp':
+                    df[col] = pd.to_numeric(df[col], errors='ignore')
+
+            self.logger.info(
+                f"Предобработка завершена: {len(df)} строк, {len(df.columns)} столбцов")
+            return df
+
+        except Exception as e:
+            self.logger.error(f"Ошибка предобработки данных: {e}")
+            return df
+
+    def _create_telemetry_data(self, df: pd.DataFrame, file_path: str, metadata: Dict[str, str]) -> TelemetryData:
+        """КРИТИЧНО: Создание TelemetryData с правильными метаданными"""
+        try:
+            # КРИТИЧНО: Определяем временной диапазон из реальных данных
+            if 'real_timestamp' in metadata:
+                try:
+                    base_time = pd.to_datetime(metadata['real_timestamp'])
+
+                    # Получаем период дискретизации
+                    sampling_period = 100  # По умолчанию 100ms
+                    if 'Sampling period' in metadata:
+                        try:
+                            sampling_period = int(metadata['Sampling period'])
+                        except:
+                            pass
+
+                    # Рассчитываем временной диапазон
+                    duration_seconds = len(df) * sampling_period / 1000.0
+                    start_time = base_time
+                    end_time = base_time + timedelta(seconds=duration_seconds)
+
+                    self.logger.info(
+                        f"Использовано реальное время: {start_time} - {end_time}")
+
+                except Exception as e:
+                    self.logger.error(
+                        f"Ошибка парсинга реального времени: {e}")
+                    # Fallback
+                    end_time = datetime.now()
+                    start_time = end_time - timedelta(seconds=len(df))
+            else:
+                # Fallback к текущему времени
+                end_time = datetime.now()
+                start_time = end_time - timedelta(seconds=len(df))
+
+            timestamp_range = (start_time, end_time)
+
+            return TelemetryData(
+                data=df,
                 metadata=metadata,
                 timestamp_range=timestamp_range,
                 source_file=file_path
             )
-            
-            return telemetry_data
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка создания TelemetryData: {e}")
             raise
-    
+
     def _update_legacy_attributes(self, telemetry_data: TelemetryData):
         """Обновление атрибутов для совместимости с legacy кодом"""
         try:
             self.data = telemetry_data.data
             self.start_time = telemetry_data.timestamp_range[0]
             self.end_time = telemetry_data.timestamp_range[1]
-            
+
             # Извлечение параметров
             self.parameters = self._extract_parameters(telemetry_data.data)
             self.lines = self._extract_lines(self.parameters)
-            
-            self.logger.debug(f"Legacy атрибуты обновлены: {len(self.parameters)} параметров")
-            
+
+            self.logger.debug(
+                f"Legacy атрибуты обновлены: {len(self.parameters)} параметров")
+
         except Exception as e:
             self.logger.error(f"Ошибка обновления legacy атрибутов: {e}")
-    
-    def _extract_parameters(self, data: pd.DataFrame) -> List[Dict[str, Any]]:
+
+    def _extract_parameters(self, data: pd.DataFrame) -> list:
         """Извлечение параметров из данных"""
         parameters = []
         exclude_columns = {'timestamp', 'TIMESTAMP', 'index', 'time'}
-        
+
         for column in data.columns:
             if column.lower() not in exclude_columns:
                 param_info = self._parse_parameter_info(column)
                 if param_info:
                     parameters.append(param_info)
-        
+
         return parameters
-    
+
+    def _clean_description(self, description: str) -> str:
+        """НОВЫЙ метод: Очистка описания от артефактов"""
+        if not description:
+            return ""
+
+        # Удаляем артефакты "|0", "|", пустые значения
+        artifacts = ['|0', '|', '0', 'nan', 'NaN', 'None', 'null']
+
+        cleaned = description
+        for artifact in artifacts:
+            cleaned = cleaned.replace(artifact, '').strip()
+
+        # Удаляем множественные пробелы
+        import re
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+        return cleaned
+
+    def _generate_description_from_code(self, signal_code: str) -> str:
+        """НОВЫЙ метод: Генерация описания из кода сигнала"""
+        try:
+            parts = signal_code.split('_')
+            if len(parts) > 1:
+                # Убираем тип сигнала и номер вагона
+                description_parts = []
+                for part in parts[1:]:
+                    if not part.isdigit():  # Пропускаем номера
+                        description_parts.append(
+                            part.replace('_', ' ').title())
+
+                if description_parts:
+                    return ' '.join(description_parts)
+
+            # Fallback
+            return signal_code.replace('_', ' ').title()
+
+        except Exception:
+            return signal_code
+
     def _parse_parameter_info(self, column_name: str) -> Optional[Dict[str, Any]]:
-        """Парсинг информации о параметре"""
+        """ИСПРАВЛЕННЫЙ парсинг с очисткой описания"""
         try:
             if '::' in column_name:
-                # Расширенный формат
                 signal_code, metadata = column_name.split('::', 1)
+
                 if '|' in metadata:
                     line, description = metadata.split('|', 1)
+                    line = line.strip()
+                    description = description.strip()
+
+                    # ИСПРАВЛЕНИЕ: Очищаем описание от артефактов
+                    description = self._clean_description(description)
+
+                    # Если описание пустое после очистки, генерируем новое
+                    if not description:
+                        description = self._generate_description_from_code(
+                            signal_code)
                 else:
-                    line, description = metadata, ''
+                    line = metadata.strip()
+                    description = self._generate_description_from_code(
+                        signal_code)
             else:
                 # Простой формат
                 signal_code = column_name
                 parts = column_name.split('_')
                 signal_type = parts[0] if parts else 'Unknown'
                 line = self._determine_line(signal_type)
-                description = '_'.join(parts[1:]).replace('_', ' ').title() if len(parts) > 1 else ''
-            
+                description = self._generate_description_from_code(signal_code)
+
+            # ФИНАЛЬНАЯ очистка описания
+            description = self._clean_description(description)
+
             return {
-                'signal_code': signal_code,
+                'signal_code': signal_code.strip(),
                 'full_column': column_name,
-                'description': description.strip(),
+                'description': description,
                 'line': line.strip(),
                 'wagon': self._extract_wagon_number(signal_code),
                 'signal_type': signal_code.split('_')[0] if '_' in signal_code else 'Unknown'
             }
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка парсинга параметра {column_name}: {e}")
             return None
-    
+
     def _determine_line(self, signal_type: str) -> str:
         """Определение линии по типу сигнала"""
         line_mapping = {
             'B': 'L_CAN_BLOK_CH',
-            'BY': 'L_CAN_ICU_CH_A', 
+            'BY': 'L_CAN_ICU_CH_A',
             'W': 'L_TV_MAIN_CH_A',
             'DW': 'L_TV_MAIN_CH_B',
             'F': 'L_LCUP_CH_A',
             'WF': 'L_LCUP_CH_B'
         }
         return line_mapping.get(signal_type, 'UNKNOWN_LINE')
-    
+
     def _extract_wagon_number(self, signal_code: str) -> str:
         """Извлечение номера вагона"""
         parts = signal_code.split('_')
@@ -474,19 +417,44 @@ class CSVDataLoader:
                 if 1 <= num <= 15:
                     return str(num)
         return '1'
-    
-    def _extract_lines(self, parameters: List[Dict[str, Any]]) -> set:
+
+    def _extract_lines(self, parameters: list) -> set:
         """Извлечение уникальных линий"""
         return {param['line'] for param in parameters if param.get('line')}
-    
-    def clear_cache(self):
-        """Очистка кэша определения параметров"""
-        self._detection_cache.clear()
-        self.logger.info("Кэш определения параметров очищен")
-    
-    def get_cache_stats(self) -> Dict[str, int]:
-        """Статистика кэша"""
-        return {
-            'cache_size': len(self._detection_cache),
-            'cache_enabled': self.cache_enabled
-        }
+
+    def filter_changed_params(self, start_time, end_time) -> list:
+        """Фильтрация изменяемых параметров для совместимости"""
+        try:
+            from datetime import datetime
+
+            # Преобразование строк в datetime если необходимо
+            if isinstance(start_time, str):
+                start_time = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+            if isinstance(end_time, str):
+                end_time = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+
+            self.logger.info(
+                f"Фильтрация изменяемых параметров в диапазоне {start_time} - {end_time}")
+
+            if not hasattr(self, 'data') or self.data is None:
+                self.logger.warning("Нет данных для фильтрации")
+                return []
+
+            # Возвращаем все не системные параметры как потенциально изменяемые
+            changed_params = []
+            for param in self.parameters:
+                try:
+                    signal_code = param.get('signal_code', '').upper()
+                    if 'TIMESTAMP' not in signal_code and not signal_code.startswith('DATE:'):
+                        changed_params.append(param)
+                except Exception:
+                    changed_params.append(param)
+                    continue
+
+            self.logger.info(
+                f"Найдено {len(changed_params)} потенциально изменяемых параметров")
+            return changed_params
+
+        except Exception as e:
+            self.logger.error(f"Ошибка фильтрации изменяемых параметров: {e}")
+            return []
