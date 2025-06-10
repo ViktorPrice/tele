@@ -238,36 +238,79 @@ class PlotVisualizationPanel(ttk.Frame):
 
     def build_plots_for_parameters(self, parameters: List[Dict[str, Any]],
                                    start_time: datetime, end_time: datetime):
-        """Главный метод построения графиков для параметров"""
+        """ИСПРАВЛЕННОЕ построение графиков для параметров"""
         try:
             if self.is_building_plots:
                 self.logger.warning("Построение графиков уже выполняется")
                 return
 
             if not parameters:
-                self._show_warning(
-                    "Нет выбранных параметров для построения графиков")
+                self._show_warning("Нет выбранных параметров для построения графиков")
                 return
 
             self.is_building_plots = True
             self._show_building_progress(True)
+
+            # ДИАГНОСТИКА: Проверяем данные
+            self.logger.info(f"Начало построения графиков для {len(parameters)} параметров")
+            self.logger.info(f"Временной диапазон: {start_time} - {end_time}")
+
+            # Проверяем PlotBuilder
+            if not self.plot_builder:
+                self.logger.error("PlotBuilder не инициализирован")
+                self._show_error("PlotBuilder не инициализирован")
+                return
+
+            # Проверяем data_loader
+            if not hasattr(self.plot_builder, 'data_loader') or not self.plot_builder.data_loader:
+                self.logger.error("DataLoader не найден в PlotBuilder")
+                self._show_error("DataLoader не найден")
+                return
+
+            # ДИАГНОСТИКА: Проверяем наличие данных
+            has_data = self.plot_builder._has_data()
+            self.logger.info(f"Проверка данных: {has_data}")
+            
+            if not has_data:
+                # Пытаемся диагностировать проблему
+                data_loader = self.plot_builder.data_loader
+                self.logger.info(f"DataLoader тип: {type(data_loader)}")
+                self.logger.info(f"DataLoader атрибуты: {[attr for attr in dir(data_loader) if not attr.startswith('_')]}")
+                
+                if hasattr(data_loader, 'data'):
+                    self.logger.info(f"data_loader.data: {type(data_loader.data)}")
+                    if hasattr(data_loader.data, 'shape'):
+                        self.logger.info(f"Размер данных: {data_loader.data.shape}")
+                
+                if hasattr(data_loader, 'parameters'):
+                    self.logger.info(f"Количество параметров: {len(data_loader.parameters) if data_loader.parameters else 0}")
 
             # Удаляем приветственную вкладку если есть
             self._remove_welcome_tab()
 
             # Группируем параметры для создания графиков
             plot_groups = self._group_parameters_for_plots(parameters)
+            self.logger.info(f"Создано групп графиков: {len(plot_groups)}")
 
             # Создаем графики для каждой группы
+            success_count = 0
             for group_name, group_params in plot_groups.items():
-                self._create_plot_tab(
-                    group_name, group_params, start_time, end_time)
+                try:
+                    self._create_plot_tab(group_name, group_params, start_time, end_time)
+                    success_count += 1
+                except Exception as e:
+                    self.logger.error(f"Ошибка создания графика '{group_name}': {e}")
+                    continue
 
-            self.logger.info(
-                f"Создано {len(plot_groups)} графиков для {len(parameters)} параметров")
+            if success_count > 0:
+                self.logger.info(f"Успешно создано {success_count} графиков из {len(plot_groups)}")
+            else:
+                self._show_error("Не удалось создать ни одного графика. Проверьте данные и логи.")
 
         except Exception as e:
             self.logger.error(f"Ошибка построения графиков: {e}")
+            import traceback
+            traceback.print_exc()
             self._show_error(f"Ошибка построения графиков: {e}")
         finally:
             self.is_building_plots = False

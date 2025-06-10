@@ -70,6 +70,160 @@ class MainController:
 
         self.logger.info("MainController инициализирован")
 
+    # ДОБАВЛЯЕМ: Унифицированные методы доступа
+    def _get_time_panel(self):
+        """ЕДИНЫЙ метод получения time_panel (улучшенная версия)"""
+        # Способ 1: Через ui_components (если установлен)
+        if (hasattr(self, 'ui_components') and 
+            self.ui_components and 
+            hasattr(self.ui_components, '_get_time_panel')):
+            return self.ui_components._get_time_panel()
+        
+        # Способ 2: Через view.ui_components
+        if (hasattr(self.view, 'ui_components') and 
+            self.view.ui_components and 
+            hasattr(self.view.ui_components, 'time_panel')):
+            return self.view.ui_components.time_panel
+        
+        # Способ 3: Прямой доступ
+        if hasattr(self.view, 'time_panel'):
+            return self.view.time_panel
+            
+        return None
+
+    def _get_parameter_panel(self):
+        """ЕДИНЫЙ метод получения parameter_panel (улучшенная версия)"""
+        # Способ 1: Через ui_components (если установлен)
+        if (hasattr(self, 'ui_components') and 
+            self.ui_components and 
+            hasattr(self.ui_components, '_get_parameter_panel')):
+            return self.ui_components._get_parameter_panel()
+        
+        # Способ 2: Через view.ui_components
+        if (hasattr(self.view, 'ui_components') and 
+            self.view.ui_components and 
+            hasattr(self.view.ui_components, 'parameter_panel')):
+            return self.view.ui_components.parameter_panel
+            
+        return None
+
+    def _get_filter_panel(self):
+        """ЕДИНЫЙ метод получения filter_panel"""
+        # Способ 1: Через ui_components
+        if (hasattr(self, 'ui_components') and 
+            self.ui_components and 
+            hasattr(self.ui_components, '_get_filter_panel')):
+            return self.ui_components._get_filter_panel()
+        
+        # Способ 2: Через view.ui_components
+        if (hasattr(self.view, 'ui_components') and 
+            self.view.ui_components and 
+            hasattr(self.view.ui_components, 'filter_panel')):
+            return self.view.ui_components.filter_panel
+            
+        return None
+
+    def _get_action_panel(self):
+        """ЕДИНЫЙ метод получения action_panel"""
+        # Способ 1: Через ui_components
+        if (hasattr(self, 'ui_components') and 
+            self.ui_components and 
+            hasattr(self.ui_components, '_get_action_panel')):
+            return self.ui_components._get_action_panel()
+        
+        # Способ 2: Через view.ui_components
+        if (hasattr(self.view, 'ui_components') and 
+            self.view.ui_components and 
+            hasattr(self.view.ui_components, 'action_panel')):
+            return self.view.ui_components.action_panel
+            
+        return None
+
+    # УЛУЧШАЕМ: Метод обновления времени с использованием унифицированного доступа
+    def _update_time_panel_fields_unified(self, time_fields: Dict[str, Any]) -> bool:
+        """УНИФИЦИРОВАННОЕ обновление времени с новыми методами доступа"""
+        try:
+            self.logger.info(f"Унифицированное обновление полей времени: {time_fields}")
+
+            # Используем унифицированный метод доступа
+            time_panel = self._get_time_panel()
+            
+            if time_panel and hasattr(time_panel, 'update_time_fields'):
+                time_panel.update_time_fields(
+                    from_time=time_fields['from_time'],
+                    to_time=time_fields['to_time'], 
+                    duration=time_fields.get('duration', ''),
+                    total_records=time_fields.get('total_records', 0)
+                )
+                self.logger.info("✅ Время обновлено через унифицированный доступ")
+                return True
+            else:
+                self.logger.error("❌ time_panel не найден или не имеет нужного метода")
+                # Fallback к старому методу
+                return self._update_time_panel_fields(time_fields)
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка унифицированного обновления времени: {e}")
+            return False
+
+    # УЛУЧШАЕМ: Получение выбранных параметров через унифицированный доступ
+    def _get_selected_parameters_unified(self) -> List[Dict[str, Any]]:
+        """УНИФИЦИРОВАННОЕ получение выбранных параметров"""
+        try:
+            parameter_panel = self._get_parameter_panel()
+            
+            if parameter_panel and hasattr(parameter_panel, 'get_selected_parameters'):
+                selected = parameter_panel.get_selected_parameters()
+                self.logger.debug(f"Получено выбранных параметров через унифицированный доступ: {len(selected)}")
+                return selected
+            else:
+                # Fallback к старому методу
+                return self._get_selected_parameters()
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка унифицированного получения параметров: {e}")
+            return []
+
+    # ДОБАВЛЯЕМ: Метод переключения режима UI
+    def switch_ui_layout(self, mode: str):
+        """Переключение режима UI (compact/standard)"""
+        try:
+            if (hasattr(self.view, 'ui_components') and 
+                self.view.ui_components and 
+                hasattr(self.view.ui_components, 'switch_layout_safe')):
+                
+                self.view.ui_components.switch_layout_safe(mode)
+                self.logger.info(f"UI переключен на {mode} режим")
+                
+                # Переустанавливаем ссылки на панели
+                if hasattr(self, 'ui_components'):
+                    self.ui_components = self.view.ui_components
+                
+            else:
+                self.logger.warning("Переключение режима UI недоступно")
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка переключения режима UI: {e}")
+
+    # ДОБАВЛЯЕМ: Отложенное обновление времени (уже есть в коде, но улучшаем)
+    def _delayed_time_update(self, time_fields: Dict[str, Any]):
+        """УЛУЧШЕННОЕ отложенное обновление времени"""
+        try:
+            # Пытаемся унифицированный метод
+            success = self._update_time_panel_fields_unified(time_fields)
+            
+            if not success:
+                # Fallback к старому методу
+                success = self._update_time_panel_fields(time_fields)
+            
+            if success:
+                self.logger.info("✅ Отложенное обновление времени выполнено")
+            else:
+                self.logger.error("❌ Отложенное обновление времени не удалось")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка отложенного обновления времени: {e}")
+
     def _setup_use_cases(self):
         """Настройка Use Cases"""
         if not USE_CASES_AVAILABLE:

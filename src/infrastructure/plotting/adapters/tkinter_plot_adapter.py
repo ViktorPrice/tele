@@ -1,3 +1,4 @@
+#src\infrastructure\plotting\adapters\tkinter_plot_adapter.py
 """
 Адаптер для интеграции matplotlib с Tkinter через Clean Architecture
 """

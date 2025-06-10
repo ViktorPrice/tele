@@ -1,3 +1,4 @@
+#src\infrastructure\plotting\core\plot_builder.py
 """
 Use Case для генерации графиков (PlotGenerationUseCase)
 Минимальная современная реализация для интеграции с PlotVisualizationPanel

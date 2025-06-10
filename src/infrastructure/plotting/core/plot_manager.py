@@ -1,3 +1,4 @@
+#src\infrastructure\plotting\core\plot_manager.py
 """
 Главный менеджер графиков БЕЗ legacy зависимостей
 """
