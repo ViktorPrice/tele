@@ -417,11 +417,47 @@ class UIComponents:
             # 4. Горизонтальная панель действий (строка 3)
             self._create_horizontal_action_panel()
 
+            # 5. Диагностическая панель фильтров (строка 4)
+            self._create_diagnostic_filter_panel()
+
         except Exception as e:
             self.logger.error(f"Ошибка создания компактных панелей: {e}")
             # Fallback к стандартным панелям
             self.use_compact_layout = False
             self._create_standard_panels()
+
+    def _create_diagnostic_filter_panel(self):
+        """Создание панели диагностических фильтров"""
+        try:
+            diagnostic_frame = ttk.LabelFrame(
+                self.left_panel_frame,
+                text="Диагностика",
+                padding="3"
+            )
+            diagnostic_frame.grid(row=4, column=0, sticky="ew", pady=(0, 3))
+            diagnostic_frame.grid_columnconfigure(0, weight=1)
+
+            try:
+                from .diagnostic_filter_panel import DiagnosticFilterPanel
+                self.diagnostic_filter_panel = DiagnosticFilterPanel(diagnostic_frame, self.controller)
+                self.diagnostic_filter_panel.grid(row=0, column=0, sticky="ew")
+                self.logger.info("✅ DiagnosticFilterPanel создан")
+            except ImportError as e:
+                self.logger.warning(f"DiagnosticFilterPanel не найден: {e}")
+                self._create_diagnostic_placeholder(diagnostic_frame)
+
+        except Exception as e:
+            self.logger.error(f"Ошибка создания диагностической панели: {e}")
+
+    def _create_diagnostic_placeholder(self, parent):
+        """Заглушка для диагностической панели"""
+        placeholder_label = ttk.Label(
+            parent,
+            text="Диагностические фильтры временно недоступны",
+            foreground="gray",
+            font=('Arial', 9)
+        )
+        placeholder_label.grid(row=0, column=0, pady=5)
 
     def _create_compact_time_panel(self):
         """ИСПРАВЛЕННОЕ создание компактной панели времени"""

@@ -1538,6 +1538,145 @@ class MainController:
         self.action_panel = action_panel
         self.logger.info("ActionPanel установлен в контроллере")
 
+    # === ДОБАВЛЕННЫЕ ДИАГНОСТИЧЕСКИЕ МЕТОДЫ ===
+
+    def apply_diagnostic_filters(self, diagnostic_filters: Dict[str, List[str]]):
+        """Применение диагностических фильтров"""
+        try:
+            if not self._has_data():
+                self.logger.warning("Нет данных для применения диагностических фильтров")
+                return
+            
+            # Получаем все параметры
+            all_parameters = self.model.data_loader.parameters
+            if not all_parameters:
+                return
+            
+            # Применяем диагностические фильтры
+            if self.filtering_service and hasattr(self.filtering_service, 'filter_by_diagnostic_criteria'):
+                filtered_parameters = self.filtering_service.filter_by_diagnostic_criteria(
+                    all_parameters, diagnostic_filters
+                )
+            else:
+                # Fallback - используем базовую фильтрацию
+                filtered_parameters = self._apply_diagnostic_filters_fallback(
+                    all_parameters, diagnostic_filters
+                )
+            
+            # Обновляем параметры в UI
+            self._update_parameters_in_ui(filtered_parameters)
+            
+            # Обновляем статистику
+            self._update_diagnostic_statistics(filtered_parameters, diagnostic_filters)
+            
+            self.logger.info(f"Применены диагностические фильтры: {len(all_parameters)} -> {len(filtered_parameters)}")
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка применения диагностических фильтров: {e}")
+
+    def perform_diagnostic_analysis(self):
+        """Выполнение диагностического анализа"""
+        try:
+            if not self._has_data():
+                self.logger.warning("Нет данных для диагностического анализа")
+                return
+            
+            # Получаем все параметры
+            all_parameters = self.model.data_loader.parameters
+            if not all_parameters:
+                return
+            
+            # Выполняем анализ паттернов неисправностей
+            if (self.filtering_service and 
+                hasattr(self.filtering_service, 'analyze_fault_patterns')):
+                
+                analysis_results = self.filtering_service.analyze_fault_patterns(all_parameters)
+                
+                # Отображаем результаты в UI
+                self._display_diagnostic_results(analysis_results)
+                
+            else:
+                self.logger.warning("Диагностический анализ недоступен")
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка выполнения диагностического анализа: {e}")
+
+    def _apply_diagnostic_filters_fallback(self, parameters: List[Dict[str, Any]], 
+                                         diagnostic_filters: Dict[str, List[str]]) -> List[Dict[str, Any]]:
+        """Fallback применение диагностических фильтров"""
+        try:
+            # Простая реализация без классификатора
+            filtered = []
+            
+            for param in parameters:
+                signal_code = param.get('signal_code', '').upper()
+                description = param.get('description', '').upper()
+                combined_text = f"{signal_code} {description}"
+                
+                include_param = False
+                
+                # Проверка критичности
+                if diagnostic_filters.get('criticality'):
+                    for crit_filter in diagnostic_filters['criticality']:
+                        if crit_filter == 'emergency' and any(word in combined_text for word in ['EMERGENCY', 'ALARM', 'FAULT']):
+                            include_param = True
+                        elif crit_filter == 'safety' and any(word in combined_text for word in ['SAFETY', 'SECURITY', 'FIRE']):
+                            include_param = True
+                        # ... другие проверки
+                
+                # Проверка систем
+                if diagnostic_filters.get('systems'):
+                    for sys_filter in diagnostic_filters['systems']:
+                        if sys_filter == 'brakes' and any(word in combined_text for word in ['BCU', 'BRAKE', 'PRESSURE']):
+                            include_param = True
+                        elif sys_filter == 'power' and any(word in combined_text for word in ['PSN', 'QF', '3000V']):
+                            include_param = True
+                        # ... другие проверки
+                
+                # Если нет активных фильтров, включаем все
+                if not any(diagnostic_filters.values()):
+                    include_param = True
+                
+                if include_param:
+                    filtered.append(param)
+            
+            return filtered
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка fallback диагностической фильтрации: {e}")
+            return parameters
+
+    def _display_diagnostic_results(self, results: Dict[str, Any]):
+        """Отображение результатов диагностического анализа"""
+        try:
+            # Получаем панель диагностических фильтров
+            diagnostic_panel = self._get_diagnostic_filter_panel()
+            
+            if diagnostic_panel and hasattr(diagnostic_panel, 'show_diagnostic_results'):
+                diagnostic_panel.show_diagnostic_results(results)
+            else:
+                # Fallback - логируем результаты
+                self.logger.info("Результаты диагностического анализа:")
+                self.logger.info(f"Найдено неисправностей: {results.get('fault_count', 0)}")
+                self.logger.info(f"Общий статус: {results.get('system_health', {}).get('overall_status', 'unknown')}")
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка отображения результатов диагностики: {e}")
+
+    def _get_diagnostic_filter_panel(self):
+        """Получение панели диагностических фильтров"""
+        try:
+            if (hasattr(self.view, 'ui_components') and 
+                self.view.ui_components and 
+                hasattr(self.view.ui_components, 'diagnostic_filter_panel')):
+                return self.view.ui_components.diagnostic_filter_panel
+            
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка получения диагностической панели: {e}")
+            return None
+
     def load_test_data(self):
         """Загрузка тестовых данных для проверки UI"""
         try:
