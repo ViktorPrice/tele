@@ -180,6 +180,11 @@ def _create_application_context(components, logger):
         root = tk.Tk()
         root.title("Анализатор телеметрии - НОВАЯ АРХИТЕКТУРА")
 
+        # Добавлено: применение темы и стилей
+        from src.ui.utils.styles import StyleManager
+        style_manager = StyleManager()
+        style_manager.apply_theme('light')
+
         logger.info("Создание компонентов новой архитектуры...")
 
         # Создание модели (теперь отдельный класс)
