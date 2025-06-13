@@ -118,15 +118,85 @@ class MainWindow:
     def update_telemetry_info(self, file_name: str = "", params_count: int = 0, selected_count: int = 0, 
                          line_mcd: str = "", route: str = "", train: str = "", leading_unit: str = ""):
         """Обновление основной информации в компактном формате с данными телеметрии"""
+        try:
+            self.logger.info(f"🔄 update_telemetry_info вызван: файл={file_name}, МЦД={line_mcd}, маршрут={route}, состав={train}, вагон={leading_unit}")
+            
+            if self.main_info_label:
+                # Компактный формат с основной информацией о телеметрии
+                info_parts = []
+                
+                # Файл и параметры
+                info_parts.append(f"📁 {file_name or 'не загружен'}")
+                info_parts.append(f"📊 {params_count}")
+                if selected_count > 0:
+                    info_parts.append(f"✅ {selected_count}")
+                
+                # Данные телеметрии МЦД
+                info_parts.append(f"🚄 МЦД-{line_mcd or '-'}")
+                info_parts.append(f"🗺️ {route or '-'}")
+                info_parts.append(f"🚂 {train or '-'}")
+                info_parts.append(f"⏰ {leading_unit or '-'}")
+                
+                info_text = " | ".join(info_parts)
+                self.main_info_label.config(text=info_text)
+                
+                # ПРИНУДИТЕЛЬНОЕ обновление отображения
+                self.main_info_label.update()
+                self.root.update_idletasks()
+                
+                self.logger.info(f"✅ Информационная панель обновлена: {info_text}")
+                
+            else:
+                self.logger.error("❌ main_info_label не найден! Информационная панель не создана.")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обновления основной информации: {e}")
+            import traceback
+            traceback.print_exc()
 
     def update_additional_info(self, message: str):
         """Обновление дополнительной информации (более краткой)"""
+        try:
+            if hasattr(self, 'additional_info_label') and self.additional_info_label:
+                self.additional_info_label.config(text=message)
+                self.additional_info_label.update()
+                self.root.update_idletasks()
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления дополнительной информации: {e}")
 
     def update_connection_status(self, status: str, color: str = "#27ae60"):
         """Обновление статуса подключения"""
+        try:
+            if hasattr(self, 'connection_status') and self.connection_status:
+                self.connection_status.config(text=status, foreground=color)
+                self.connection_status.update()
+                self.root.update_idletasks()
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления статуса подключения: {e}")
 
     def update_mcd_info(self, line_mcd: str = "", route: str = "", train: str = "", leading_unit: str = ""):
         """Обновление только информации о МЦД без изменения файла и параметров"""
+        try:
+            if self.main_info_label:
+                # Получаем текущий текст
+                current_text = self.main_info_label.cget("text")
+                parts = current_text.split("|")
+                # Обновляем части с МЦД
+                for i, part in enumerate(parts):
+                    if part.strip().startswith("🚄 МЦД-"):
+                        parts[i] = f"🚄 МЦД-{line_mcd or '-'}"
+                    elif part.strip().startswith("🗺️"):
+                        parts[i] = f"🗺️ {route or '-'}"
+                    elif part.strip().startswith("🚂"):
+                        parts[i] = f"🚂 {train or '-'}"
+                    elif part.strip().startswith("⏰"):
+                        parts[i] = f"⏰ {leading_unit or '-'}"
+                new_text = " | ".join(parts)
+                self.main_info_label.config(text=new_text)
+                self.main_info_label.update()
+                self.root.update_idletasks()
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления информации о МЦД: {e}")
 
     def update_file_info(self, file_path: str = "", records_count: int = 0):
         """Обновление информации о файле с автоматическим извлечением данных МЦД"""
