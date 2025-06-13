@@ -23,6 +23,9 @@ class CompactTimePanel(ttk.Frame):
         self.params_count_var = tk.StringVar(value="Параметров: 0")
         self.changed_only_var = tk.BooleanVar()
 
+        # Таймер для отложенного пересчета
+        self._recalc_timer = None
+
         # НОВЫЕ атрибуты для приоритетной логики
         self.has_priority_for_changed_filter = True  # Приоритет по умолчанию
         self.on_time_range_changed = None  # Callback для изменения времени
@@ -34,7 +37,21 @@ class CompactTimePanel(ttk.Frame):
         self.to_entry = None
 
         self._setup_compact_ui()
+
+        # Подписка на событие приоритетной фильтрации изменяемых параметров
+        if self.controller:
+            self.controller._ui_callbacks.setdefault('changed_params_filter_applied', []).append(self._on_changed_params_filter_applied)
+
         self.logger.info("CompactTimePanel инициализирован с приоритетной логикой")
+
+    def _on_changed_params_filter_applied(self, data):
+        """Обработчик события применения приоритетного фильтра изменяемых параметров"""
+        try:
+            count = data.get('count', 0)
+            self.params_count_var.set(f"Параметров: {count}")
+            self.logger.info(f"Обновлено количество параметров: {count}")
+        except Exception as e:
+            self.logger.error(f"Ошибка обработки события changed_params_filter_applied: {e}")
 
     def _setup_compact_ui(self):
         """Компактный UI в 2 строки с приоритетной логикой"""
@@ -149,10 +166,12 @@ class CompactTimePanel(ttk.Frame):
                 to_time = self.to_time_var.get()
                 self.on_time_range_changed(from_time, to_time)
             
-            # Если активен приоритетный режим, автоматически применяем
+            # Если активен приоритетный режим, автоматически применяем с отложенным вызовом
             if self.changed_only_var.get() and self.controller:
-                if hasattr(self.controller, 'apply_changed_parameters_filter'):
-                    self.controller.apply_changed_parameters_filter()
+                root = self.winfo_toplevel()
+                if hasattr(self, '_recalc_timer') and self._recalc_timer:
+                    root.after_cancel(self._recalc_timer)
+                self._recalc_timer = root.after(500, self._auto_recalculate)
                     
         except Exception as e:
             self.logger.error(f"Ошибка обработки изменения времени: {e}")
@@ -399,3 +418,12 @@ class CompactTimePanel(ttk.Frame):
 
     def __repr__(self):
         return self.__str__()
+
+    def _auto_recalculate(self):
+        """Автоматический пересчет изменяемых параметров"""
+        try:
+            if self.controller and hasattr(self.controller, 'apply_changed_parameters_filter'):
+                self.controller.apply_changed_parameters_filter(auto_recalc=True)
+                self.logger.info("✅ Автоматический пересчет выполнен")
+        except Exception as e:
+            self.logger.error(f"Ошибка автоматического пересчета: {e}")

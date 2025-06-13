@@ -97,7 +97,8 @@ class FindChangedParametersUseCase:
 
             # Проверяем кэш
             cache_key = self._generate_cache_key(request)
-            if not request.force_refresh and self._is_cache_valid(cache_key):
+            force_refresh = getattr(request, 'force_refresh', False)
+            if not force_refresh and self._is_cache_valid(cache_key):
                 cached_response = self._get_cached_response(cache_key, start_time)
                 if cached_response:
                     self.logger.info("✅ Использован кэшированный результат")

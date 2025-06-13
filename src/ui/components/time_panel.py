@@ -34,8 +34,49 @@ class TimePanel(ttk.Frame):
         self.is_updating = False
         self.has_priority_for_changed_filter = True  # Приоритет для изменяемых параметров
 
+        # Таймер для отложенного пересчета
+        self._recalc_timer = None
+
         self._setup_ui()
+        self._setup_time_fields_bindings()
+
+        # Подписка на событие приоритетной фильтрации изменяемых параметров
+        if self.controller:
+            self.controller._ui_callbacks.setdefault('changed_params_filter_applied', []).append(self._on_changed_params_filter_applied)
+
         self.logger.info("TimePanel инициализирован с приоритетной логикой")
+
+    def _setup_time_fields_bindings(self):
+        """Настройка привязок для полей времени"""
+        try:
+            # Привязываем события изменения к полям времени
+            self.from_time_entry.bind('<FocusOut>', lambda e: self._on_time_field_changed())
+            self.to_time_entry.bind('<FocusOut>', lambda e: self._on_time_field_changed())
+            self.from_time_entry.bind('<Return>', lambda e: self._on_time_field_changed())
+            self.to_time_entry.bind('<Return>', lambda e: self._on_time_field_changed())
+
+        except Exception as e:
+            self.logger.error(f"Ошибка настройки привязок: {e}")
+
+    def _on_time_field_changed(self):
+        """Обработка изменения полей времени"""
+        try:
+            # Валидируем введенное время
+            from_time = self.from_time_entry.get().strip()
+            to_time = self.to_time_entry.get().strip()
+
+            if from_time and to_time:
+                # Проверяем формат
+                datetime.strptime(from_time, '%Y-%m-%d %H:%M:%S')
+                datetime.strptime(to_time, '%Y-%m-%d %H:%M:%S')
+
+                # Если валидация прошла, запускаем пересчет
+                self._on_time_changed()
+
+        except ValueError as e:
+            self.logger.warning(f"Неверный формат времени: {e}")
+        except Exception as e:
+            self.logger.error(f"Ошибка обработки изменения поля времени: {e}")
 
     def _setup_ui(self):
         """Настройка UI с приоритетной логикой"""
@@ -284,7 +325,7 @@ class TimePanel(ttk.Frame):
             self.logger.info("Чекбокс изменяемых параметров включен")
 
     def _on_time_changed(self, event=None):
-        """Обработчик изменения времени пользователем"""
+        """Обработка изменения времени с автоматическим пересчетом"""
         if self.is_updating:
             return
 
@@ -302,9 +343,15 @@ class TimePanel(ttk.Frame):
                 # Обновляем информацию о длительности
                 self._update_duration_info(from_time, to_time)
 
-                # Если включен фильтр изменяемых параметров, автоматически применяем
+                # Проверяем, включен ли фильтр изменяемых параметров
                 if self.changed_only_var and self.changed_only_var.get():
-                    self._apply_changed_params_auto()
+                    self.logger.info(f"🔄 Автоматический пересчет изменяемых параметров для: {from_time} - {to_time}")
+
+                    # Вызываем пересчет с небольшой задержкой для избежания частых вызовов
+                    if self._recalc_timer:
+                        self.after_cancel(self._recalc_timer)
+
+                    self._recalc_timer = self.after(500, self._recalculate_changed_params)
 
             self.logger.debug(f"Время изменено пользователем: {from_time} - {to_time}")
 
@@ -319,6 +366,19 @@ class TimePanel(ttk.Frame):
                 self.logger.info("🚀 Автоматически применен фильтр изменяемых параметров")
         except Exception as e:
             self.logger.error(f"Ошибка автоматического применения фильтра: {e}")
+
+    def _recalculate_changed_params(self):
+        """Пересчет изменяемых параметров"""
+        try:
+            if self.controller and hasattr(self.controller, 'apply_changed_parameters_filter'):
+                # Принудительно пересчитываем изменяемые параметры
+                self.controller.apply_changed_parameters_filter(
+                    threshold=0.1,
+                    auto_recalc=True  # Флаг автоматического пересчета
+                )
+                self.logger.info("✅ Автоматический пересчет изменяемых параметров выполнен")
+        except Exception as e:
+            self.logger.error(f"Ошибка автоматического пересчета: {e}")
 
     def _update_duration_info(self, from_time_str: str, to_time_str: str):
         """Обновление информации о длительности"""
@@ -456,6 +516,23 @@ class TimePanel(ttk.Frame):
         if self.records_label:
             self.records_label.config(text="Записей: 0")
 
+    def update_parameter_count(self, count: int):
+        """Обновление отображения количества параметров"""
+        try:
+            if self.records_label:
+                self.records_label.config(text=f"Записей: {count}")
+                self.logger.info(f"Обновлено количество параметров: {count}")
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления количества параметров: {e}")
+
+    def _on_changed_params_filter_applied(self, data):
+        """Обработчик события применения приоритетного фильтра изменяемых параметров"""
+        try:
+            count = data.get('count', 0)
+            self.update_parameter_count(count)
+        except Exception as e:
+            self.logger.error(f"Ошибка обработки события changed_params_filter_applied: {e}")
+
     def _show_error(self, message: str):
         """Показ сообщения об ошибке"""
         try:
@@ -502,3 +579,87 @@ class TimePanel(ttk.Frame):
 
     def __repr__(self):
         return self.__str__()
+
+    def _add_5_seconds(self):
+        """Добавить 5 секунд к диапазону"""
+        try:
+            from_time, to_time = self.get_time_range()
+
+            # Парсим и добавляем 5 секунд
+            from_dt = datetime.strptime(from_time, '%Y-%m-%d %H:%M:%S') + timedelta(seconds=5)
+            to_dt = datetime.strptime(to_time, '%Y-%m-%d %H:%M:%S') + timedelta(seconds=5)
+
+            # Обновляем поля
+            self.update_time_fields(
+                from_time=from_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                to_time=to_dt.strftime('%Y-%m-%d %H:%M:%S')
+            )
+
+            # Автоматический пересчет
+            self._on_time_changed()
+
+        except Exception as e:
+            self.logger.error(f"Ошибка добавления 5 секунд: {e}")
+
+    def _subtract_5_seconds(self):
+        """Вычесть 5 секунд из диапазона"""
+        try:
+            from_time, to_time = self.get_time_range()
+
+            # Парсим и вычитаем 5 секунд
+            from_dt = datetime.strptime(from_time, '%Y-%m-%d %H:%M:%S') - timedelta(seconds=5)
+            to_dt = datetime.strptime(to_time, '%Y-%m-%d %H:%M:%S') - timedelta(seconds=5)
+
+            # Обновляем поля
+            self.update_time_fields(
+                from_time=from_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                to_time=to_dt.strftime('%Y-%m-%d %H:%M:%S')
+            )
+
+            # Автоматический пересчет
+            self._on_time_changed()
+
+        except Exception as e:
+            self.logger.error(f"Ошибка вычитания 5 секунд: {e}")
+
+    def _add_1_second(self):
+        """Добавить 1 секунду к диапазону"""
+        try:
+            from_time, to_time = self.get_time_range()
+
+            # Парсим и добавляем 1 секунду
+            from_dt = datetime.strptime(from_time, '%Y-%m-%d %H:%M:%S') + timedelta(seconds=1)
+            to_dt = datetime.strptime(to_time, '%Y-%m-%d %H:%M:%S') + timedelta(seconds=1)
+
+            # Обновляем поля
+            self.update_time_fields(
+                from_time=from_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                to_time=to_dt.strftime('%Y-%m-%d %H:%M:%S')
+            )
+
+            # Автоматический пересчет
+            self._on_time_changed()
+
+        except Exception as e:
+            self.logger.error(f"Ошибка добавления 1 секунды: {e}")
+
+    def _subtract_1_second(self):
+        """Вычесть 1 секунду из диапазона"""
+        try:
+            from_time, to_time = self.get_time_range()
+
+            # Парсим и вычитаем 1 секунду
+            from_dt = datetime.strptime(from_time, '%Y-%m-%d %H:%M:%S') - timedelta(seconds=1)
+            to_dt = datetime.strptime(to_time, '%Y-%m-%d %H:%M:%S') - timedelta(seconds=1)
+
+            # Обновляем поля
+            self.update_time_fields(
+                from_time=from_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                to_time=to_dt.strftime('%Y-%m-%d %H:%M:%S')
+            )
+
+            # Автоматический пересчет
+            self._on_time_changed()
+
+        except Exception as e:
+            self.logger.error(f"Ошибка вычитания 1 секунды: {e}")

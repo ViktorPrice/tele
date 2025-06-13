@@ -1203,55 +1203,89 @@ class CSVDataLoader:
         except Exception as e:
             self.logger.error(f"Ошибка сбора статистики загрузки: {e}")
 
-    def filter_changed_params(self, start_time, end_time, threshold: float = 0.1) -> List[Dict[str, Any]]:
-        """ПРИОРИТЕТНАЯ фильтрация изменяемых параметров для интеграции с main_controller.py"""
+    def filter_changed_params(self, start_time: str, end_time: str, threshold: float = 0.1) -> List[Dict[str, Any]]:
+        """ИСПРАВЛЕННАЯ фильтрация изменяемых параметров с реальным анализом временного ряда"""
         try:
-            from datetime import datetime
-
-            # Преобразование строк в datetime если необходимо
-            if isinstance(start_time, str):
-                start_time = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
-            if isinstance(end_time, str):
-                end_time = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
-
-            self.logger.info(f"ПРИОРИТЕТНАЯ фильтрация изменяемых параметров: {start_time} - {end_time}")
-
-            if not hasattr(self, 'data') or self.data is None:
-                self.logger.warning("Нет данных для фильтрации")
+            if self.data is None or self.data.empty:
+                self.logger.warning("Нет данных для анализа изменяемых параметров")
                 return []
-
-            changed_params = []
             
-            for param in self.parameters:
-                try:
-                    signal_code = param.get('signal_code', '').upper()
+            self.logger.info(f"ПРИОРИТЕТНАЯ фильтрация изменяемых параметров: {start_time} - {end_time}")
+            
+            # КРИТИЧНО: Фильтруем данные по временному диапазону
+            if 'timestamp' in self.data.columns:
+                # Преобразуем строки времени в datetime для корректного сравнения
+                start_dt = pd.to_datetime(start_time)
+                end_dt = pd.to_datetime(end_time)
+                data_timestamps = pd.to_datetime(self.data['timestamp'])
+                
+                mask = (data_timestamps >= start_dt) & (data_timestamps <= end_dt)
+                filtered_data = self.data[mask]
+                
+                self.logger.info(f"Отфильтровано по времени: {len(filtered_data)} записей из {len(self.data)} (диапазон: {start_time} - {end_time})")
+            else:
+                self.logger.warning("Столбец timestamp не найден, используем все данные")
+                filtered_data = self.data
+            
+            if filtered_data.empty:
+                self.logger.warning(f"Нет данных в диапазоне {start_time} - {end_time}")
+                return []
+            
+            changed_params = []
+            all_params = self.get_parameters()
+            
+            for param in all_params:
+                signal_code = param.get('signal_code', '')
+                
+                # Ищем столбец с данными параметра
+                param_column = None
+                for col in filtered_data.columns:
+                    if signal_code in col:
+                        param_column = col
+                        break
+                
+                if param_column and param_column in filtered_data.columns:
+                    # РЕАЛЬНЫЙ анализ изменяемости в указанном временном диапазоне
+                    param_values = filtered_data[param_column].dropna()
                     
-                    # Исключаем системные параметры
-                    if any(sys_word in signal_code for sys_word in ['TIMESTAMP', 'DATE', 'TIME', 'INDEX']):
-                        continue
-                    
-                    # ПРИОРИТЕТНАЯ проверка: используем предварительную оценку
-                    if param.get('is_potentially_changed', False):
-                        # Дополнительная проверка с threshold если данные доступны
-                        column_name = param.get('full_column', signal_code)
-                        if column_name in self.data.columns:
-                            series = self.data[column_name]
-                            if self._detailed_change_analysis(series, threshold):
-                                changed_params.append(param)
-                        else:
-                            # Если данных нет, но предварительная оценка положительная
-                            changed_params.append(param)
-                    
-                except Exception as e:
-                    self.logger.debug(f"Ошибка анализа параметра {param}: {e}")
-                    continue
-
-            self.logger.info(f"Найдено {len(changed_params)} изменяемых параметров из {len(self.parameters)}")
+                    if len(param_values) > 1:
+                        # Проверяем, изменяются ли значения
+                        unique_values = param_values.nunique()
+                        total_values = len(param_values)
+                        
+                        if unique_values > 1:
+                            # Вычисляем коэффициент вариации
+                            try:
+                                if param_values.dtype in ['float64', 'int64']:
+                                    std_dev = param_values.std()
+                                    mean_val = param_values.mean()
+                                    
+                                    if mean_val != 0:
+                                        cv = std_dev / abs(mean_val)
+                                        if cv > threshold:
+                                            changed_params.append(param)
+                                            self.logger.debug(f"Параметр {signal_code} изменяется (CV={cv:.3f}) в диапазоне {start_time}-{end_time}")
+                                    else:
+                                        # Для нулевого среднего проверяем просто наличие разных значений
+                                        if std_dev > 0:
+                                            changed_params.append(param)
+                                            self.logger.debug(f"Параметр {signal_code} изменяется (std={std_dev:.3f}) в диапазоне {start_time}-{end_time}")
+                                else:
+                                    # Для нечисловых данных проверяем долю уникальных значений
+                                    uniqueness_ratio = unique_values / total_values
+                                    if uniqueness_ratio > threshold:
+                                        changed_params.append(param)
+                                        self.logger.debug(f"Параметр {signal_code} изменяется (uniqueness={uniqueness_ratio:.3f}) в диапазоне {start_time}-{end_time}")
+                            except Exception as e:
+                                self.logger.debug(f"Ошибка анализа параметра {signal_code}: {e}")
+            
+            self.logger.info(f"Найдено {len(changed_params)} изменяемых параметров из {len(all_params)} в диапазоне {start_time} - {end_time}")
             return changed_params
-
+            
         except Exception as e:
-            self.logger.error(f"Ошибка приоритетной фильтрации изменяемых параметров: {e}")
+            self.logger.error(f"Ошибка фильтрации изменяемых параметров: {e}")
             return []
+
 
     def _detailed_change_analysis(self, series: pd.Series, threshold: float) -> bool:
         """НОВЫЙ МЕТОД: Детальный анализ изменяемости с threshold"""
