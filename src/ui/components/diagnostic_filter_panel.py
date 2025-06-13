@@ -11,9 +11,10 @@ from ...config.diagnostic_filters_config import (
     CRITICAL_FILTERS, SYSTEM_FILTERS, FUNCTIONAL_FILTERS, SEVERITY_LEVELS
 )
 from src.core.domain.entities.signal_classifier import (
-    SignalCriticality, 
+    SignalCriticality,
     SignalSystem
 )
+
 
 class DiagnosticFilterPanel(ttk.Frame):
     """Панель диагностических фильтров"""
@@ -27,14 +28,14 @@ class DiagnosticFilterPanel(ttk.Frame):
         self.critical_vars: Dict[str, tk.BooleanVar] = {}
         self.system_vars: Dict[str, tk.BooleanVar] = {}
         self.functional_vars: Dict[str, tk.BooleanVar] = {}
-        
+
         # Состояние панели
         self.is_expanded = tk.BooleanVar(value=True)
         self.active_filters_count = tk.StringVar(value="Фильтры: 0")
-        
+
         # Callbacks
         self.on_filter_changed: Optional[Callable] = None
-        
+
         self._setup_diagnostic_ui()
         self.logger.info("DiagnosticFilterPanel инициализирован")
 
@@ -42,21 +43,21 @@ class DiagnosticFilterPanel(ttk.Frame):
         """Настройка UI диагностических фильтров"""
         # Настройка сетки
         self.grid_columnconfigure(0, weight=1)
-        
+
         # Заголовок с кнопкой сворачивания
         self._create_header()
-        
+
         # Основной контейнер фильтров
         self.filters_container = ttk.Frame(self)
         self.filters_container.grid(row=1, column=0, sticky="ew", pady=(5, 0))
         self.filters_container.grid_columnconfigure(0, weight=1)
-        
+
         # Создание фильтров
         self._create_critical_filters()
-        self._create_system_filters() 
+        self._create_system_filters()
         self._create_functional_filters()
         self._create_control_buttons()
-        
+
         # Привязка к переменной сворачивания
         self.is_expanded.trace('w', self._on_expand_changed)
 
@@ -110,14 +111,16 @@ class DiagnosticFilterPanel(ttk.Frame):
         critical_configs = [
             ("🆘 Аварии", "emergency", CRITICAL_FILTERS["emergency"]["color"]),
             ("⚠️ Безопасность", "safety", CRITICAL_FILTERS["safety"]["color"]),
-            ("⚡ Энергосистема", "power_critical", CRITICAL_FILTERS["power_critical"]["color"]),
-            ("🛑 Тормоза", "brake_critical", CRITICAL_FILTERS["brake_critical"]["color"])
+            ("⚡ Энергосистема", "power_critical",
+             CRITICAL_FILTERS["power_critical"]["color"]),
+            ("🛑 Тормоза", "brake_critical",
+             CRITICAL_FILTERS["brake_critical"]["color"])
         ]
 
         for i, (text, filter_key, color) in enumerate(critical_configs):
             var = tk.BooleanVar()
             self.critical_vars[filter_key] = var
-            
+
             btn = ttk.Checkbutton(
                 buttons_frame,
                 text=text,
@@ -143,7 +146,7 @@ class DiagnosticFilterPanel(ttk.Frame):
         # Создание кнопок систем
         system_configs = [
             ("🚂 Тяга", "traction"),
-            ("🛑 Тормоза", "brakes"), 
+            ("🛑 Тормоза", "brakes"),
             ("🚪 Двери", "doors"),
             ("⚡ Питание", "power"),
             ("🌡️ Климат", "climate"),
@@ -154,7 +157,7 @@ class DiagnosticFilterPanel(ttk.Frame):
         for i, (text, system_key) in enumerate(system_configs):
             var = tk.BooleanVar()
             self.system_vars[system_key] = var
-            
+
             btn = ttk.Checkbutton(
                 buttons_frame,
                 text=text,
@@ -189,7 +192,7 @@ class DiagnosticFilterPanel(ttk.Frame):
         for i, (text, func_key) in enumerate(functional_configs):
             var = tk.BooleanVar()
             self.functional_vars[func_key] = var
-            
+
             btn = ttk.Checkbutton(
                 buttons_frame,
                 text=text,
@@ -256,42 +259,58 @@ class DiagnosticFilterPanel(ttk.Frame):
         self._apply_diagnostic_filters()
 
     def _apply_diagnostic_filters(self):
-        """Применение диагностических фильтров"""
+        """ИСПРАВЛЕННОЕ применение диагностических фильтров"""
         try:
             # Собираем активные фильтры
             filters = self.get_active_diagnostic_filters()
-            
+
+            self.logger.debug(f"Применение фильтров: {filters}")
+
+            # Проверяем наличие активных фильтров
+            has_active_filters = any(filters.values())
+
+            if not has_active_filters:
+                self.logger.debug("Нет активных диагностических фильтров")
+                # Если нет активных фильтров, сбрасываем к показу всех параметров
+                if self.controller and hasattr(self.controller, 'reset_diagnostic_filters'):
+                    self.controller.reset_diagnostic_filters()
+                return
+
             # Применяем через контроллер
             if self.controller and hasattr(self.controller, 'apply_diagnostic_filters'):
                 self.controller.apply_diagnostic_filters(filters)
-            
-            # Вызываем callback
+            else:
+                self.logger.warning(
+                    "Контроллер не поддерживает диагностические фильтры")
+
+            # Вызываем callback если установлен
             if self.on_filter_changed:
                 self.on_filter_changed(filters)
-                
+
         except Exception as e:
-            self.logger.error(f"Ошибка применения диагностических фильтров: {e}")
+            self.logger.error(
+                f"Ошибка применения диагностических фильтров: {e}")
 
     def _update_active_filters_count(self):
         """Обновление счетчика активных фильтров"""
         try:
             count = 0
-            
+
             # Считаем активные фильтры
             for var in self.critical_vars.values():
                 if var.get():
                     count += 1
-            
+
             for var in self.system_vars.values():
                 if var.get():
                     count += 1
-            
+
             for var in self.functional_vars.values():
                 if var.get():
                     count += 1
-            
+
             self.active_filters_count.set(f"Фильтры: {count}")
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка обновления счетчика фильтров: {e}")
 
@@ -300,11 +319,11 @@ class DiagnosticFilterPanel(ttk.Frame):
         for filter_key in ['emergency', 'safety', 'power_critical', 'brake_critical']:
             if filter_key in self.critical_vars:
                 self.critical_vars[filter_key].set(True)
-        
+
         # Выбираем фильтр ошибок
         if 'faults' in self.functional_vars:
             self.functional_vars['faults'].set(True)
-        
+
         self._update_active_filters_count()
         self._apply_diagnostic_filters()
 
@@ -312,11 +331,11 @@ class DiagnosticFilterPanel(ttk.Frame):
         """Выбор только ошибок"""
         # Сбрасываем все
         self._reset_all_filters_internal()
-        
+
         # Включаем только фильтр ошибок
         if 'faults' in self.functional_vars:
             self.functional_vars['faults'].set(True)
-        
+
         self._update_active_filters_count()
         self._apply_diagnostic_filters()
 
@@ -342,9 +361,10 @@ class DiagnosticFilterPanel(ttk.Frame):
                 self.controller.perform_diagnostic_analysis()
             else:
                 self.logger.warning("Диагностический анализ недоступен")
-                
+
         except Exception as e:
-            self.logger.error(f"Ошибка выполнения диагностического анализа: {e}")
+            self.logger.error(
+                f"Ошибка выполнения диагностического анализа: {e}")
 
     # === ПУБЛИЧНЫЕ МЕТОДЫ ===
 
@@ -356,24 +376,24 @@ class DiagnosticFilterPanel(ttk.Frame):
                 'systems': [],
                 'functions': []
             }
-            
+
             # Собираем активные фильтры критичности
             for filter_key, var in self.critical_vars.items():
                 if var.get():
                     filters['criticality'].append(filter_key)
-            
+
             # Собираем активные системные фильтры
             for filter_key, var in self.system_vars.items():
                 if var.get():
                     filters['systems'].append(filter_key)
-            
+
             # Собираем активные функциональные фильтры
             for filter_key, var in self.functional_vars.items():
                 if var.get():
                     filters['functions'].append(filter_key)
-            
+
             return filters
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка получения фильтров: {e}")
             return {'criticality': [], 'systems': [], 'functions': []}
@@ -383,24 +403,24 @@ class DiagnosticFilterPanel(ttk.Frame):
         try:
             # Сначала сбрасываем все
             self._reset_all_filters_internal()
-            
+
             # Устанавливаем фильтры критичности
             for filter_key in filters.get('criticality', []):
                 if filter_key in self.critical_vars:
                     self.critical_vars[filter_key].set(True)
-            
+
             # Устанавливаем системные фильтры
             for filter_key in filters.get('systems', []):
                 if filter_key in self.system_vars:
                     self.system_vars[filter_key].set(True)
-            
+
             # Устанавливаем функциональные фильтры
             for filter_key in filters.get('functions', []):
                 if filter_key in self.functional_vars:
                     self.functional_vars[filter_key].set(True)
-            
+
             self._update_active_filters_count()
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка установки фильтров: {e}")
 
@@ -409,8 +429,9 @@ class DiagnosticFilterPanel(ttk.Frame):
         try:
             # Здесь можно добавить логику подсветки в UI
             # Например, изменение цвета кнопок фильтров
-            self.logger.info(f"Подсветка {len(signal_codes)} критичных сигналов")
-            
+            self.logger.info(
+                f"Подсветка {len(signal_codes)} критичных сигналов")
+
         except Exception as e:
             self.logger.error(f"Ошибка подсветки сигналов: {e}")
 
@@ -419,7 +440,7 @@ class DiagnosticFilterPanel(ttk.Frame):
         try:
             # Создаем окно с результатами
             self._create_results_window(results)
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка отображения результатов: {e}")
 
@@ -430,30 +451,32 @@ class DiagnosticFilterPanel(ttk.Frame):
             results_window.title("Результаты диагностического анализа")
             results_window.geometry("800x600")
             results_window.transient(self)
-            
+
             # Создаем прокручиваемый текст
             text_frame = ttk.Frame(results_window)
             text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-            
-            text_widget = tk.Text(text_frame, wrap=tk.WORD, font=('Courier', 10))
-            scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=text_widget.yview)
+
+            text_widget = tk.Text(
+                text_frame, wrap=tk.WORD, font=('Courier', 10))
+            scrollbar = ttk.Scrollbar(
+                text_frame, orient="vertical", command=text_widget.yview)
             text_widget.configure(yscrollcommand=scrollbar.set)
-            
+
             text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-            
+
             # Заполняем результатами
             results_text = self._format_diagnostic_results(results)
             text_widget.insert(tk.END, results_text)
             text_widget.config(state=tk.DISABLED)
-            
+
             # Кнопка закрытия
             ttk.Button(
                 results_window,
                 text="Закрыть",
                 command=results_window.destroy
             ).pack(pady=5)
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка создания окна результатов: {e}")
 
@@ -462,19 +485,19 @@ class DiagnosticFilterPanel(ttk.Frame):
         try:
             text = "РЕЗУЛЬТАТЫ ДИАГНОСТИЧЕСКОГО АНАЛИЗА\n"
             text += "=" * 50 + "\n\n"
-            
+
             # Общий статус
             if 'overall_status' in results:
                 status = results['overall_status'].upper()
                 text += f"ОБЩИЙ СТАТУС СИСТЕМЫ: {status}\n\n"
-            
+
             # Критичные неисправности
             if 'critical_faults' in results and results['critical_faults']:
                 text += "КРИТИЧНЫЕ НЕИСПРАВНОСТИ:\n"
                 for fault in results['critical_faults']:
                     text += f"  • {fault}\n"
                 text += "\n"
-            
+
             # Статус систем
             if 'systems_status' in results:
                 text += "СТАТУС СИСТЕМ:\n"
@@ -483,15 +506,15 @@ class DiagnosticFilterPanel(ttk.Frame):
                     system_status = status.get('status', 'unknown')
                     text += f"  • {system}: {system_status.upper()} (неисправностей: {fault_count})\n"
                 text += "\n"
-            
+
             # Рекомендации
             if 'recommendations' in results and results['recommendations']:
                 text += "РЕКОМЕНДАЦИИ:\n"
                 for i, rec in enumerate(results['recommendations'], 1):
                     text += f"  {i}. {rec}\n"
-            
+
             return text
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка форматирования результатов: {e}")
             return "Ошибка отображения результатов"

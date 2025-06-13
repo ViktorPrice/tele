@@ -677,14 +677,32 @@ class PlotVisualizationPanel(ttk.Frame):
     def _get_selected_parameters(self) -> List[Dict[str, Any]]:
         """Получение выбранных параметров через контроллер"""
         try:
+            # Основной способ: через контроллер
+            if self.controller and hasattr(self.controller, 'get_selected_parameters'):
+                selected = self.controller.get_selected_parameters()
+                self.logger.debug(f"Получено параметров через контроллер: {len(selected)}")
+                return selected
+            
+            # Fallback: прямой доступ к UI компонентам
             if self.controller and hasattr(self.controller, 'view'):
-                ui_components = self.controller.view.get_component(
-                    'ui_components')
-                if ui_components:
-                    return ui_components.get_selected_parameters()
+                view = self.controller.view
+                
+                # Через ui_components
+                if (hasattr(view, 'ui_components') and 
+                    view.ui_components and 
+                    hasattr(view.ui_components, 'parameter_panel')):
+                    
+                    parameter_panel = view.ui_components.parameter_panel
+                    if hasattr(parameter_panel, 'get_selected_parameters'):
+                        selected = parameter_panel.get_selected_parameters()
+                        self.logger.debug(f"Получено параметров через fallback: {len(selected)}")
+                        return selected
+            
+            self.logger.warning("Контроллер недоступен или не имеет нужных методов")
             return []
+            
         except Exception as e:
-            self.logger.error(f"Ошибка получения параметров: {e}")
+            self.logger.error(f"Ошибка получения параметров в PlotVisualizationPanel: {e}")
             return []
 
     def _get_time_range(self) -> Tuple[Optional[datetime], Optional[datetime]]:
