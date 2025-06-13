@@ -1,6 +1,5 @@
-# src/ui/components/compact_time_panel.py - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ
 """
-Компактная панель времени в 2 строки с кнопками быстрой настройки и приоритетной логикой
+Компактная панель времени в 2 строки с интерактивными стрелочками и приоритетной логикой
 """
 import tkinter as tk
 from tkinter import ttk
@@ -33,6 +32,7 @@ class CompactTimePanel(ttk.Frame):
 
         # UI элементы
         self.quick_buttons = {}
+        self.time_spinners = {}  # Для хранения стрелочек
         self.from_entry = None
         self.to_entry = None
 
@@ -54,50 +54,43 @@ class CompactTimePanel(ttk.Frame):
             self.logger.error(f"Ошибка обработки события changed_params_filter_applied: {e}")
 
     def _setup_compact_ui(self):
-        """Компактный UI в 2 строки с приоритетной логикой"""
+        """Компактный UI с интерактивными стрелочками времени"""
         # Настройка сетки
         self.grid_columnconfigure(0, weight=1)
 
-        # СТРОКА 1: Поля времени + кнопки быстрой настройки + ПРИОРИТЕТНЫЙ чекбокс
+        # СТРОКА 1: Интерактивные поля времени с стрелочками
         row1_frame = ttk.Frame(self)
         row1_frame.grid(row=0, column=0, sticky="ew", pady=(0, 3))
         row1_frame.grid_columnconfigure(1, weight=1)
         row1_frame.grid_columnconfigure(3, weight=1)
 
-        # От:
+        # От: с интерактивными стрелочками
         ttk.Label(row1_frame, text="От:", font=('Arial', 9)).grid(row=0, column=0, sticky="w", padx=(0, 5))
-        
-        self.from_entry = tk.Entry(row1_frame, textvariable=self.from_time_var, width=20, font=('Arial', 9))
-        self.from_entry.grid(row=0, column=1, sticky="ew", padx=(0, 10))
-        self.from_entry.bind('<FocusOut>', self._on_time_field_changed)
-        self.from_entry.bind('<Return>', self._on_time_field_changed)
+        self.from_time_frame = self._create_time_spinner_frame(row1_frame, self.from_time_var, "from")
+        self.from_time_frame.grid(row=0, column=1, sticky="ew", padx=(0, 10))
 
-        # До:
+        # До: с интерактивными стрелочками
         ttk.Label(row1_frame, text="До:", font=('Arial', 9)).grid(row=0, column=2, sticky="w", padx=(0, 5))
-        
-        self.to_entry = tk.Entry(row1_frame, textvariable=self.to_time_var, width=20, font=('Arial', 9))
-        self.to_entry.grid(row=0, column=3, sticky="ew", padx=(0, 10))
-        self.to_entry.bind('<FocusOut>', self._on_time_field_changed)
-        self.to_entry.bind('<Return>', self._on_time_field_changed)
+        self.to_time_frame = self._create_time_spinner_frame(row1_frame, self.to_time_var, "to")
+        self.to_time_frame.grid(row=0, column=3, sticky="ew", padx=(0, 10))
 
         # Кнопки быстрой настройки
         buttons_frame = ttk.Frame(row1_frame)
         buttons_frame.grid(row=0, column=4, sticky="w", padx=(10, 10))
 
         quick_buttons_config = [("-5с", -5), ("-1с", -1), ("+1с", +1), ("+5с", +5)]
-
         for i, (text, delta) in enumerate(quick_buttons_config):
             btn = ttk.Button(
                 buttons_frame,
                 text=text,
                 width=4,
                 command=lambda d=delta: self._shift_time(d),
-                state=tk.DISABLED  # По умолчанию отключены
+                state=tk.DISABLED
             )
             btn.grid(row=0, column=i, padx=1)
             self.quick_buttons[text] = btn
 
-        # ПРИОРИТЕТНЫЙ чекбокс "Изменяемые параметры"
+        # ПРИОРИТЕТНЫЙ чекбокс
         changed_checkbox = ttk.Checkbutton(
             row1_frame,
             text="🔥 Изменяемые",
@@ -106,7 +99,123 @@ class CompactTimePanel(ttk.Frame):
         )
         changed_checkbox.grid(row=0, column=5, sticky="w", padx=(10, 0))
 
-        # СТРОКА 2: Длительность + количество параметров + кнопки управления
+        # СТРОКА 2: остается как есть
+        self._setup_row2()
+
+    def _create_time_spinner_frame(self, parent, time_var, prefix):
+        """Создание фрейма с интерактивными стрелочками для времени"""
+        frame = ttk.Frame(parent)
+        frame.grid_columnconfigure(0, weight=1)
+        
+        # Основное поле ввода времени
+        time_entry = tk.Entry(frame, textvariable=time_var, width=20, font=('Arial', 9))
+        time_entry.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        time_entry.bind('<FocusOut>', self._on_time_field_changed)
+        time_entry.bind('<Return>', self._on_time_field_changed)
+        
+        # Сохраняем ссылку на entry
+        if prefix == "from":
+            self.from_entry = time_entry
+        else:
+            self.to_entry = time_entry
+        
+        # Контейнер для стрелочек
+        spinners_frame = ttk.Frame(frame)
+        spinners_frame.grid(row=0, column=1, sticky="w")
+        
+        # Создаем стрелочки для часов, минут, секунд
+        self._create_time_component_spinner(spinners_frame, "Час.", 0, prefix, "hours")
+        self._create_time_component_spinner(spinners_frame, "Мин.", 1, prefix, "minutes") 
+        self._create_time_component_spinner(spinners_frame, "Сек.", 2, prefix, "seconds")
+        
+        return frame
+
+    def _create_time_component_spinner(self, parent, label, column, time_prefix, component):
+        """Создание стрелочек для конкретного компонента времени (часы/минуты/секунды)"""
+        # Контейнер для одного компонента
+        comp_frame = ttk.Frame(parent)
+        comp_frame.grid(row=0, column=column, padx=2)
+        
+        # Подпись (H/M/S)
+        ttk.Label(comp_frame, text=label, font=('Arial', 8)).grid(row=0, column=0, columnspan=2)
+        
+        # Стрелочка вверх
+        up_btn = ttk.Button(
+            comp_frame,
+            text="▲",
+            width=2,
+            command=lambda: self._increment_time_component(time_prefix, component, 1)
+        )
+        up_btn.grid(row=1, column=0, sticky="ew")
+        
+        # Стрелочка вниз
+        down_btn = ttk.Button(
+            comp_frame,
+            text="▼", 
+            width=2,
+            command=lambda: self._increment_time_component(time_prefix, component, -1)
+        )
+        down_btn.grid(row=1, column=1, sticky="ew")
+        
+        # Сохраняем кнопки для управления состоянием
+        spinner_key = f"{time_prefix}_{component}"
+        self.time_spinners[spinner_key] = {'up': up_btn, 'down': down_btn}
+
+    def _increment_time_component(self, time_prefix, component, delta):
+        """Изменение конкретного компонента времени"""
+        try:
+            # Получаем текущее значение времени
+            if time_prefix == "from":
+                current_time_str = self.from_time_var.get()
+                time_var = self.from_time_var
+            else:
+                current_time_str = self.to_time_var.get()
+                time_var = self.to_time_var
+            
+            if not current_time_str:
+                return
+            
+            # Парсим текущее время
+            current_time = datetime.strptime(current_time_str, '%Y-%m-%d %H:%M:%S')
+            
+            # Применяем изменение в зависимости от компонента
+            if component == "hours":
+                new_time = current_time + timedelta(hours=delta)
+            elif component == "minutes":
+                new_time = current_time + timedelta(minutes=delta)
+            elif component == "seconds":
+                new_time = current_time + timedelta(seconds=delta)
+            else:
+                return
+            
+            # Обновляем значение
+            time_var.set(new_time.strftime('%Y-%m-%d %H:%M:%S'))
+            
+            # Обновляем длительность
+            self._update_duration()
+            
+            # Если активен приоритетный режим, автоматически пересчитываем
+            if self.changed_only_var.get() and self.controller:
+                root = self.winfo_toplevel()
+                if hasattr(self, '_recalc_timer') and self._recalc_timer:
+                    root.after_cancel(self._recalc_timer)
+                self._recalc_timer = root.after(300, self._auto_recalculate)
+            
+            # Вызываем callback
+            if self.on_time_range_changed:
+                from_time = self.from_time_var.get()
+                to_time = self.to_time_var.get()
+                self.on_time_range_changed(from_time, to_time)
+                
+            self.logger.debug(f"Изменен {component} на {delta} для {time_prefix}: {new_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+        except ValueError as e:
+            self.logger.error(f"Ошибка парсинга времени при изменении {component}: {e}")
+        except Exception as e:
+            self.logger.error(f"Ошибка изменения компонента времени: {e}")
+
+    def _setup_row2(self):
+        """Настройка второй строки"""
         row2_frame = ttk.Frame(self)
         row2_frame.grid(row=1, column=0, sticky="ew")
         row2_frame.grid_columnconfigure(0, weight=1)
@@ -134,7 +243,7 @@ class CompactTimePanel(ttk.Frame):
         ttk.Button(controls_frame, text="Сброс", command=self._reset_time, width=8).grid(row=0, column=1)
 
     def _on_changed_only_toggle_priority(self):
-        """ПРИОРИТЕТНОЕ переключение чекбокса изменяемых параметров"""
+        """ПРИОРИТЕТНОЕ переключение с управлением стрелочками"""
         is_enabled = self.changed_only_var.get()
         
         self.logger.info(f"🔥 ПРИОРИТЕТНЫЙ фильтр изменяемых параметров: {is_enabled}")
@@ -143,6 +252,11 @@ class CompactTimePanel(ttk.Frame):
         state = tk.NORMAL if is_enabled else tk.DISABLED
         for btn in self.quick_buttons.values():
             btn.config(state=state)
+        
+        # Включаем/отключаем стрелочки времени
+        for spinner_data in self.time_spinners.values():
+            spinner_data['up'].config(state=state)
+            spinner_data['down'].config(state=state)
 
         # Вызываем callback если установлен
         if self.on_changed_only_toggle:
@@ -245,8 +359,12 @@ class CompactTimePanel(ttk.Frame):
                         self.params_count_var.set(f"Записей: {time_fields.get('total_records', 0)}")
                         self.changed_only_var.set(False)
                         
+                        # Отключаем кнопки и стрелочки
                         for btn in self.quick_buttons.values():
                             btn.config(state=tk.DISABLED)
+                        for spinner_data in self.time_spinners.values():
+                            spinner_data['up'].config(state=tk.DISABLED)
+                            spinner_data['down'].config(state=tk.DISABLED)
                         
                         self.logger.info("Время сброшено к данным CSV")
                         return
@@ -260,6 +378,9 @@ class CompactTimePanel(ttk.Frame):
             
             for btn in self.quick_buttons.values():
                 btn.config(state=tk.DISABLED)
+            for spinner_data in self.time_spinners.values():
+                spinner_data['up'].config(state=tk.DISABLED)
+                spinner_data['down'].config(state=tk.DISABLED)
 
         except Exception as e:
             self.logger.error(f"Ошибка сброса времени: {e}")
@@ -334,13 +455,24 @@ class CompactTimePanel(ttk.Frame):
         return self.from_time_var.get(), self.to_time_var.get()
 
     def set_loading_state(self, loading: bool):
-        """Установка состояния загрузки"""
+        """Установка состояния загрузки для всех элементов включая стрелочки"""
         state = tk.DISABLED if loading else tk.NORMAL
         
+        # Основные поля ввода
         if self.from_entry:
             self.from_entry.config(state=state)
         if self.to_entry:
             self.to_entry.config(state=state)
+        
+        # Стрелочки времени
+        for spinner_data in self.time_spinners.values():
+            spinner_data['up'].config(state=state)
+            spinner_data['down'].config(state=state)
+        
+        # Кнопки быстрой настройки
+        for btn in self.quick_buttons.values():
+            if self.changed_only_var.get():
+                btn.config(state=state)
 
     # === НОВЫЕ МЕТОДЫ ПРИОРИТЕТНОЙ ЛОГИКИ ===
 
@@ -350,11 +482,14 @@ class CompactTimePanel(ttk.Frame):
         if has_priority:
             self.logger.info("🔥 CompactTimePanel получил приоритет для изменяемых параметров")
         
-        # Обновляем состояние кнопок быстрой настройки
+        # Обновляем состояние кнопок быстрой настройки и стрелочек
         if hasattr(self, 'quick_buttons'):
             state = tk.NORMAL if self.changed_only_var.get() else tk.DISABLED
             for btn in self.quick_buttons.values():
                 btn.config(state=state)
+            for spinner_data in self.time_spinners.values():
+                spinner_data['up'].config(state=state)
+                spinner_data['down'].config(state=state)
 
     def get_filter_settings(self) -> Dict[str, Any]:
         """НОВЫЙ МЕТОД: Получение настроек фильтрации"""
