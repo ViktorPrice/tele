@@ -1,4 +1,5 @@
-# src/config/ui_config.py - НОВЫЙ ФАЙЛ
+# src/config/ui_config.py - исправленная версия с обновлённым путём модуля для filter_panel
+
 """
 Конфигурация UI компонентов для устранения дублирований и приоритетной логики
 """
@@ -23,7 +24,7 @@ UI_COMPONENT_REGISTRY = {
         'priority_for_changed_filter': False,
         'sync_with_time_panel': True,
         'class_name': 'FilterPanel',
-        'module_path': 'src.ui.components.filter_panel',
+        'module_path': 'src.ui.components.smart_filter_panel',  # Обновлено на SmartFilterPanel
         'description': 'Панель фильтров без дублирования чекбокса изменяемых параметров',
         'features': ['signal_type_filters', 'line_filters', 'wagon_filters', 'component_filters'],
         'dependencies': ['main_controller', 'time_panel_sync']
@@ -406,7 +407,7 @@ for comp_name in ['filter_panel']:
         comp = getattr(mainwindow.ui_components, comp_name, None)
         if comp and hasattr(comp, 'disable_changed_only_checkbox'):
             comp.disable_changed_only_checkbox()
-        """,
+    """,
         'dependency_injection_code': """
 # Заменить ручную настройку на:
 for comp_name in get_setup_order():

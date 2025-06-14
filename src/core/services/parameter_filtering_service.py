@@ -79,29 +79,53 @@ class ParameterFilteringService:
             return []
 
     def _apply_diagnostic_filters(self, params: List[Any],
-                                 diagnostic_criteria: Dict[str, List[str]]) -> List[Any]:
-        """Применение диагностических фильтров"""
-        if not isinstance(diagnostic_criteria, dict):
-            self.logger.error("Diagnostic filters must be a dictionary")
-            return params
+                             diagnostic_criteria: Dict[str, List[str]]) -> List[Any]:
+        """ИНТЕГРАЦИЯ реальных диагностических фильтров"""
         try:
-            # Классификация параметров
-            classified = self.signal_classifier.classify_signals_batch(params)
+            from ...config.diagnostic_filters_config import (
+                CRITICAL_FILTERS, SYSTEM_FILTERS, FUNCTIONAL_FILTERS
+            )
             
             filtered = []
+            
             for param in params:
-                classification = classified.get(param.get('signal_code', ''))
-                if not classification:
-                    continue
-                    
-                if self._matches_diagnostic_criteria(classification, diagnostic_criteria):
+                signal_code = param.get('signal_code', '').upper()
+                description = param.get('description', '').upper()
+                
+                matches = False
+                
+                # ИНТЕГРАЦИЯ: Проверяем критичность
+                if diagnostic_criteria.get('criticality'):
+                    for crit_key in diagnostic_criteria['criticality']:
+                        if crit_key in CRITICAL_FILTERS:
+                            patterns = CRITICAL_FILTERS[crit_key]['patterns']
+                            if any(pattern in signal_code or pattern in description for pattern in patterns):
+                                matches = True
+                                break
+                
+                # ИНТЕГРАЦИЯ: Проверяем системы
+                if diagnostic_criteria.get('systems'):
+                    for sys_key in diagnostic_criteria['systems']:
+                        if sys_key in SYSTEM_FILTERS:
+                            patterns = SYSTEM_FILTERS[sys_key]['patterns']
+                            if any(pattern in signal_code or pattern in description for pattern in patterns):
+                                matches = True
+                                break
+                
+                # ИНТЕГРАЦИЯ: Реальные паттерны из анализа
+                if not matches and diagnostic_criteria.get('real_patterns'):
+                    real_patterns = diagnostic_criteria['real_patterns']
+                    if any(pattern in signal_code for pattern in real_patterns):
+                        matches = True
+                
+                if matches:
                     filtered.append(param)
-                    
-            self.logger.debug(f"Applied diagnostic filters: {diagnostic_criteria}")
+            
+            self.logger.info(f"🚨 Диагностическая фильтрация: {len(params)} → {len(filtered)} параметров")
             return filtered
             
         except Exception as e:
-            self.logger.error(f"Diagnostic filter error: {e}")
+            self.logger.error(f"Ошибка диагностической фильтрации: {e}")
             return params
 
     def _matches_diagnostic_criteria(self, classification,

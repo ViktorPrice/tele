@@ -1,4 +1,3 @@
-# src/ui/components/__init__.py
 """
 UI компоненты для анализатора телеметрии
 """
@@ -7,8 +6,9 @@ UI компоненты для анализатора телеметрии
 from .ui_components import UIComponents
 from .time_panel import TimePanel
 from .compact_time_panel import CompactTimePanel
-from .filter_panel import FilterPanel
-from .compact_filter_panel import CompactFilterPanel
+# from .filter_panel import FilterPanel  # Удалено, так как модуль удалён
+from .smart_filter_panel import SmartFilterPanel  # Добавлено вместо filter_panel
+# from .compact_filter_panel import CompactFilterPanel  # Удалено, так как модуль удалён
 from .parameter_panel import ParameterPanel
 from .horizontal_parameter_panel import HorizontalParameterPanel
 from .action_panel import ActionPanel
@@ -23,8 +23,8 @@ __all__ = [
     'UIComponents',
     'TimePanel',
     'CompactTimePanel', 
-    'FilterPanel',
-    'CompactFilterPanel',
+    'SmartFilterPanel',  # Добавлено
+#    'CompactFilterPanel',
     'ParameterPanel',
     'HorizontalParameterPanel',
     'ActionPanel',

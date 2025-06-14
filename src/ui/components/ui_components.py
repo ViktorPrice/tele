@@ -1,5 +1,6 @@
 """
 Иерархия UI компонентов с базовым классом и специализированными наследниками
+ИСПРАВЛЕННАЯ ВЕРСИЯ с интеграцией SmartFilterPanel
 """
 import tkinter as tk
 from tkinter import ttk
@@ -8,7 +9,6 @@ from typing import Dict, Any, Optional, List, Callable
 from datetime import datetime
 import time
 from abc import ABC, abstractmethod
-
 
 class UIComponentsBase(ABC):
     """Базовый класс для всех UI компонентов"""
@@ -61,8 +61,9 @@ class UIComponentsBase(ABC):
 
             # Связь между фильтрами и параметрами
             if self.filter_panel and self.parameter_panel:
-                if hasattr(self.filter_panel, 'on_filter_changed'):
-                    self.filter_panel.on_filter_changed = self._on_filters_changed
+                if hasattr(self.filter_panel, 'observer'):
+                    # Подписываемся на изменения фильтров через Observer
+                    self.filter_panel.observer.subscribe(self._on_filters_changed)
 
             # Связь между параметрами и действиями
             if self.parameter_panel and self.action_panel:
@@ -97,12 +98,13 @@ class UIComponentsBase(ABC):
 
     # === ОБЩИЕ ОБРАБОТЧИКИ СОБЫТИЙ ===
 
-    def _on_filters_changed(self):
-        """Обработка изменения фильтров"""
+    def _on_filters_changed(self, filter_state):
+        """Обработка изменения фильтров через SmartFilterPanel"""
         try:
             if self.controller:
-                self.controller.apply_filters()
-            self.emit_event('filter_changed')
+                # SmartFilterPanel уже применяет фильтры через свой observer
+                pass
+            self.emit_event('filter_changed', filter_state.to_dict())
         except Exception as e:
             self.logger.error(f"Ошибка обработки изменения фильтров: {e}")
 
@@ -208,13 +210,27 @@ class UIComponentsBase(ABC):
             self.parameter_panel.update_parameters(parameters)
             self.logger.info("✅ parameter_panel.update_parameters выполнен")
 
-            # Обновляем панель фильтров
-            if self.filter_panel and hasattr(self.filter_panel, 'update_line_checkboxes'):
-                lines = list(set(p.get('line', '') for p in parameters if p.get('line')))
-                self.filter_panel.update_line_checkboxes(lines)
-                self.logger.debug(f"Обновлены линии в фильтрах: {len(lines)} элементов")
+            # Обновляем SmartFilterPanel
+            if self.filter_panel:
+                # Извлекаем уникальные типы сигналов
+                signal_types = list(set(p.get('signal_type', '') for p in parameters if p.get('signal_type')))
+                if hasattr(self.filter_panel, 'update_signal_type_checkboxes'):
+                    self.filter_panel.update_signal_type_checkboxes(signal_types)
+                    self.logger.debug(f"Обновлены типы сигналов: {len(signal_types)} элементов")
 
-            # Обновляем диагностическую панель
+                # Извлекаем уникальные линии
+                lines = list(set(p.get('line', '') for p in parameters if p.get('line')))
+                if hasattr(self.filter_panel, 'update_line_checkboxes'):
+                    self.filter_panel.update_line_checkboxes(lines)
+                    self.logger.debug(f"Обновлены линии: {len(lines)} элементов")
+
+                # Извлекаем номера вагонов
+                wagons = list(set(str(p.get('wagon', '')) for p in parameters if p.get('wagon')))
+                if hasattr(self.filter_panel, 'update_wagon_checkboxes'):
+                    self.filter_panel.update_wagon_checkboxes(wagons)
+                    self.logger.debug(f"Обновлены вагоны: {len(wagons)} элементов")
+
+            # Обновляем диагностическую панель (если есть отдельная)
             if self.diagnostic_panel and hasattr(self.diagnostic_panel, 'update_parameters'):
                 self.diagnostic_panel.update_parameters(parameters)
                 self.logger.debug("Обновлены параметры в диагностической панели")
@@ -351,10 +367,9 @@ class UIComponentsBase(ABC):
     def _create_fallback_filter_panel(self, parent):
         """Fallback создание FilterPanel"""
         try:
-            from .filter_panel import FilterPanel
-            self.filter_panel = FilterPanel(parent, self.controller)
-            self.filter_panel.grid(row=0, column=0, sticky="ew")
-            self.logger.info("✅ FilterPanel создан (fallback)")
+            # Удален fallback импорт старой панели filter_panel, чтобы избежать ошибки импорта
+            self.logger.warning("Fallback FilterPanel отключен, используйте SmartFilterPanel")
+            # Можно добавить альтернативный код или оставить пустым
         except Exception as e:
             self.logger.error(f"Ошибка создания FilterPanel: {e}")
 
@@ -380,9 +395,8 @@ class UIComponentsBase(ABC):
         except Exception as e:
             self.logger.error(f"Ошибка создания ActionPanel: {e}")
 
-
 class UIComponentsCompact(UIComponentsBase):
-    """Компактный режим UI без дублирований - ОСНОВНОЙ КЛАСС"""
+    """ИСПРАВЛЕННЫЙ компактный режим UI с интеграцией SmartFilterPanel"""
 
     def __init__(self, root: tk.Tk, controller):
         super().__init__(root, controller)
@@ -394,7 +408,7 @@ class UIComponentsCompact(UIComponentsBase):
         self._setup_event_system()
 
         self.is_initialized = True
-        self.logger.info("UIComponentsCompact инициализирован (основной режим)")
+        self.logger.info("UIComponentsCompact инициализирован с SmartFilterPanel")
 
     def _setup_main_layout(self):
         """Создание компактного макета приложения"""
@@ -427,29 +441,32 @@ class UIComponentsCompact(UIComponentsBase):
             raise
 
     def _create_ui_panels(self):
-        """Создание UI панелей в компактном режиме"""
+        """ИСПРАВЛЕННОЕ создание UI панелей с SmartFilterPanel"""
         try:
-            self.logger.info("Создание компактных панелей")
+            self.logger.info("Создание компактных панелей с SmartFilterPanel")
             
+            # КРИТИЧНО: Правильные веса для отображения панели параметров
+            self.left_panel_frame.grid_rowconfigure(0, weight=0)  # time_panel
+            self.left_panel_frame.grid_rowconfigure(1, weight=0)  # smart_filter_panel
+            self.left_panel_frame.grid_rowconfigure(2, weight=1)  # parameter_panel ✅
+            self.left_panel_frame.grid_rowconfigure(3, weight=0)  # action_panel
+
             # 1. Компактная панель времени (строка 0)
             self._create_compact_time_panel()
 
-            # 2. Компактная панель фильтров (строка 1)
-            self._create_compact_filter_panel()
+            # 2. НОВАЯ SmartFilterPanel (строка 1) - заменяет 3 старые панели
+            self._create_smart_filter_panel()
 
-            # 3. Горизонтальная панель параметров (строка 2)
+            # 3. Горизонтальная панель параметров (строка 2) - ИСПРАВЛЕНА
             self._create_horizontal_parameter_panel()
 
             # 4. Горизонтальная панель действий (строка 3)
             self._create_horizontal_action_panel()
 
-            # 5. Диагностическая панель (строка 4)
-            self._create_diagnostic_filter_panel()
-
-            # 6. Панель визуализации графиков
+            # 5. Панель визуализации графиков
             self._create_plot_visualization_panel()
 
-            self.logger.info("Все компактные панели созданы")
+            self.logger.info("Все компактные панели созданы с SmartFilterPanel")
 
         except Exception as e:
             self.logger.error(f"Ошибка создания компактных панелей: {e}")
@@ -477,30 +494,38 @@ class UIComponentsCompact(UIComponentsBase):
         except Exception as e:
             self.logger.error(f"Ошибка создания компактной панели времени: {e}")
 
-    def _create_compact_filter_panel(self):
-        """Создание компактной панели фильтров"""
+    def _create_smart_filter_panel(self):
+        """НОВОЕ: Создание революционно компактной SmartFilterPanel"""
         try:
             filter_frame = ttk.LabelFrame(
                 self.left_panel_frame,
-                text="🔍 Фильтры параметров",
+                text="🔍 Умные фильтры",
                 padding="3"
             )
             filter_frame.grid(row=1, column=0, sticky="ew", pady=(0, 3))
             filter_frame.grid_columnconfigure(0, weight=1)
 
             try:
-                from .compact_filter_panel import CompactFilterPanel
-                self.filter_panel = CompactFilterPanel(filter_frame, self.controller)
+                from .smart_filter_panel import SmartFilterPanel
+                self.filter_panel = SmartFilterPanel(filter_frame, self.controller)
                 self.filter_panel.grid(row=0, column=0, sticky="ew")
-                self.logger.info("✅ CompactFilterPanel создан")
-            except ImportError:
-                self._create_fallback_filter_panel(filter_frame)
+                self.logger.info("✅ SmartFilterPanel создан - заменил 3 старые панели")
+            except ImportError as e:
+                self.logger.warning(f"SmartFilterPanel недоступен: {e}")
+                # Fallback к CompactFilterPanel
+                try:
+                    from .compact_filter_panel import CompactFilterPanel
+                    self.filter_panel = CompactFilterPanel(filter_frame, self.controller)
+                    self.filter_panel.grid(row=0, column=0, sticky="ew")
+                    self.logger.info("✅ CompactFilterPanel создан (fallback)")
+                except ImportError:
+                    self._create_fallback_filter_panel(filter_frame)
 
         except Exception as e:
-            self.logger.error(f"Ошибка создания компактной панели фильтров: {e}")
+            self.logger.error(f"Ошибка создания SmartFilterPanel: {e}")
 
     def _create_horizontal_parameter_panel(self):
-        """Создание горизонтальной панели параметров"""
+        """КРИТИЧНО ИСПРАВЛЕННОЕ создание панели параметров"""
         try:
             parameter_frame = ttk.LabelFrame(
                 self.left_panel_frame,
@@ -511,8 +536,8 @@ class UIComponentsCompact(UIComponentsBase):
             parameter_frame.grid_columnconfigure(0, weight=1)
             parameter_frame.grid_rowconfigure(0, weight=1)
 
-            # КРИТИЧНО: Устанавливаем вес для растягивания панели параметров
-            self.left_panel_frame.grid_rowconfigure(2, weight=1)
+            # КРИТИЧНО: Этот вес уже установлен выше в _create_ui_panels()
+            # self.left_panel_frame.grid_rowconfigure(2, weight=1)
 
             try:
                 from .horizontal_parameter_panel import HorizontalParameterPanel
@@ -522,8 +547,14 @@ class UIComponentsCompact(UIComponentsBase):
             except ImportError:
                 self._create_fallback_parameter_panel(parameter_frame)
 
+            # ДОПОЛНИТЕЛЬНО: Принудительное обновление компоновки
+            parameter_frame.update_idletasks()
+            self.left_panel_frame.update_idletasks()
+
+            self.logger.info("✅ Панель параметров создана с правильными весами")
+
         except Exception as e:
-            self.logger.error(f"Ошибка создания горизонтальной панели параметров: {e}")
+            self.logger.error(f"Ошибка создания панели параметров: {e}")
 
     def _create_horizontal_action_panel(self):
         """Создание горизонтальной панели действий"""
@@ -546,44 +577,6 @@ class UIComponentsCompact(UIComponentsBase):
 
         except Exception as e:
             self.logger.error(f"Ошибка создания горизонтальной панели действий: {e}")
-
-    def _create_diagnostic_filter_panel(self):
-        """Создание панели диагностических фильтров"""
-        try:
-            diagnostic_frame = ttk.LabelFrame(
-                self.left_panel_frame,
-                text="🔍 Диагностика",
-                padding="3"
-            )
-            diagnostic_frame.grid(row=4, column=0, sticky="ew", pady=(0, 3))
-            diagnostic_frame.grid_columnconfigure(0, weight=1)
-
-            try:
-                from .diagnostic_filter_panel import DiagnosticFilterPanel
-                
-                self.diagnostic_panel = DiagnosticFilterPanel(
-                    diagnostic_frame,
-                    controller=self.controller
-                )
-                self.diagnostic_panel.grid(row=0, column=0, sticky="ew")
-
-                self.logger.info("✅ DiagnosticFilterPanel создан")
-
-            except ImportError as e:
-                self.logger.warning(f"DiagnosticFilterPanel недоступен: {e}")
-                # Создаем заглушку
-                placeholder = ttk.Label(
-                    diagnostic_frame,
-                    text="💡 Диагностические фильтры недоступны",
-                    justify=tk.CENTER,
-                    foreground='gray'
-                )
-                placeholder.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-                self.diagnostic_panel = None
-
-        except Exception as e:
-            self.logger.error(f"Ошибка создания DiagnosticFilterPanel: {e}")
-            self.diagnostic_panel = None
 
     def _create_plot_visualization_panel(self):
         """Создание панели визуализации графиков"""
@@ -644,16 +637,16 @@ class UIComponentsCompact(UIComponentsBase):
         info_label.grid(row=0, column=0, padx=20, pady=20)
 
     def __str__(self):
-        return f"UIComponentsCompact(initialized={self.is_initialized})"
+        return f"UIComponentsCompact(initialized={self.is_initialized}, smart_filter=True)"
 
 
 # ОСНОВНОЙ КЛАСС ДЛЯ ИСПОЛЬЗОВАНИЯ
 class UIComponents(UIComponentsCompact):
-    """Главный класс UI компонентов - наследует от компактного режима"""
+    """Главный класс UI компонентов - наследует от компактного режима с SmartFilterPanel"""
     
     def __init__(self, root: tk.Tk, controller):
         super().__init__(root, controller)
-        self.logger.info("UIComponents инициализирован в компактном режиме (основной)")
+        self.logger.info("UIComponents инициализирован с SmartFilterPanel (революционный режим)")
 
     def __str__(self):
-        return f"UIComponents(mode=compact, initialized={self.is_initialized})"
+        return f"UIComponents(mode=smart_compact, initialized={self.is_initialized})"
