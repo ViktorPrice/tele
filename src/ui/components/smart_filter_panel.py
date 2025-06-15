@@ -304,20 +304,33 @@ class SmartFilterPanel(ttk.Frame):
             self.logger.error(f"Ошибка создания кнопок вагонов: {e}")
 
     def _create_lines_content(self, parent):
-        """Компактный контент для линий с автодополнением"""
+        """Компактный контент для линий с чекбоксами для множественного выбора"""
         lines_frame = ttk.Frame(parent)
         lines_frame.pack(fill="x", pady=2)
         
-        ttk.Label(lines_frame, text="Поиск:", font=('Arial', 8)).pack(side="left")
+        ttk.Label(lines_frame, text="Линии:", font=('Arial', 8)).pack(anchor="w")
         
-        self.lines_entry = ttk.Entry(lines_frame, width=20, font=('Arial', 8))
-        self.lines_entry.pack(side="left", fill="x", expand=True, padx=(5, 0))
-        self.lines_entry.bind('<KeyRelease>', self._on_lines_search)
+        # Словарь для хранения переменных чекбоксов линий
+        self.line_vars = {}
         
-        # Мини-список с результатами (максимум 3 строки)
-        self.lines_listbox = tk.Listbox(lines_frame, height=3, font=('Arial', 8))
-        self.lines_listbox.pack(fill="x", pady=(2, 0))
-        self.lines_listbox.bind('<Double-Button-1>', self._on_line_selected)
+        # Контейнер для чекбоксов линий
+        self.lines_checkbox_frame = ttk.Frame(lines_frame)
+        self.lines_checkbox_frame.pack(fill="x", pady=2)
+        
+    def _on_line_checkbox_changed(self):
+        """Обработка изменения выбора чекбоксов линий"""
+        try:
+            selected_lines = set()
+            for line, var in self.line_vars.items():
+                if var.get():
+                    selected_lines.add(line)
+            self.state.lines = selected_lines
+            self.logger.info(f"✅ Выбрано линий: {len(selected_lines)}")
+            self._notify_state_changed()
+        except Exception as e:
+            self.logger.error(f"Ошибка обработки чекбоксов линий: {e}")
+
+    # Удаляем методы _on_lines_search и _on_line_selected, так как они не нужны с чекбоксами
 
     def _create_diagnostic_content(self, parent):
         """ИСПРАВЛЕННОЕ создание без проблемных опций"""
@@ -583,41 +596,43 @@ class SmartFilterPanel(ttk.Frame):
         except Exception as e:
             self.logger.error(f"Ошибка обработки чекбоксов сигналов: {e}")
 
-    def _on_lines_search(self, event=None):
-        """Обработка поиска по линиям"""
+    def update_line_checkboxes(self, lines: List[str]):
+        """Обновление линий с чекбоксами"""
         try:
-            search_text = self.lines_entry.get().lower()
-            
-            # Фильтруем линии по поисковому запросу
-            if search_text:
-                filtered_lines = [line for line in self.all_lines if search_text in line.lower()]
-            else:
-                filtered_lines = self.all_lines[:10]  # Показываем первые 10
-            
-            # Обновляем listbox
-            self.lines_listbox.delete(0, tk.END)
-            for line in filtered_lines[:10]:  # Максимум 10 результатов
-                self.lines_listbox.insert(tk.END, line)
-                
-        except Exception as e:
-            self.logger.error(f"Ошибка поиска линий: {e}")
+            self.all_lines = lines
+            self.state.lines = set(lines)  # По умолчанию все выбраны
 
-    def _on_line_selected(self, event=None):
-        """Обработка выбора линии"""
-        try:
-            selection = self.lines_listbox.curselection()
-            if selection:
-                line = self.lines_listbox.get(selection[0])
-                
-                if line in self.state.lines:
-                    self.state.lines.remove(line)
-                else:
-                    self.state.lines.add(line)
-                
-                self._notify_state_changed()
-                
+            # Проверяем, инициализирована ли вкладка lines, если нет - инициализируем
+            if 'lines' in self.tabs and not self.tabs['lines']['initialized']:
+                self.tabs['lines']['creator'](self.tabs['lines']['frame'])
+                self.tabs['lines']['initialized'] = True
+            
+            # Очищаем старые чекбоксы
+            if hasattr(self, 'lines_checkbox_frame') and self.lines_checkbox_frame.winfo_exists():
+                for widget in self.lines_checkbox_frame.winfo_children():
+                    widget.destroy()
+            
+            self.line_vars = {}
+            
+            # Создаем чекбоксы для каждой линии, расположенные горизонтально
+            for line in lines:
+                var = tk.BooleanVar(value=True)
+                self.line_vars[line] = var
+                cb = ttk.Checkbutton(
+                    self.lines_checkbox_frame,
+                    text=line,
+                    variable=var,
+                    command=self._on_line_checkbox_changed
+                )
+                cb.pack(side="left", padx=5, pady=1)
+            
+            # Принудительно обновляем компоновку
+            self.lines_checkbox_frame.update_idletasks()
+            
+            self._update_statistics()
+            self.logger.info(f"Обновлены линии: {len(lines)}")
         except Exception as e:
-            self.logger.error(f"Ошибка выбора линии: {e}")
+            self.logger.error(f"Ошибка обновления линий: {e}")
 
     def _on_diagnostic_changed(self):
         """ИСПРАВЛЕННАЯ обработка диагностических фильтров"""
@@ -964,10 +979,38 @@ class SmartFilterPanel(ttk.Frame):
 
 
     def update_line_checkboxes(self, lines: List[str]):
-        """Обновление линий"""
+        """Обновление линий с чекбоксами"""
         try:
             self.all_lines = lines
             self.state.lines = set(lines)  # По умолчанию все выбраны
+
+            # Проверяем, инициализирована ли вкладка lines, если нет - инициализируем
+            if 'lines' in self.tabs and not self.tabs['lines']['initialized']:
+                self.tabs['lines']['creator'](self.tabs['lines']['frame'])
+                self.tabs['lines']['initialized'] = True
+            
+            # Очищаем старые чекбоксы
+            if hasattr(self, 'lines_checkbox_frame') and self.lines_checkbox_frame.winfo_exists():
+                for widget in self.lines_checkbox_frame.winfo_children():
+                    widget.destroy()
+            
+            self.line_vars = {}
+            
+            # Создаем чекбоксы для каждой линии, расположенные горизонтально
+            for line in lines:
+                var = tk.BooleanVar(value=True)
+                self.line_vars[line] = var
+                cb = ttk.Checkbutton(
+                    self.lines_checkbox_frame,
+                    text=line,
+                    variable=var,
+                    command=self._on_line_checkbox_changed
+                )
+                cb.pack(side="left", padx=5, pady=1)
+            
+            # Принудительно обновляем компоновку
+            self.lines_checkbox_frame.update_idletasks()
+            
             self._update_statistics()
             self.logger.info(f"Обновлены линии: {len(lines)}")
         except Exception as e:

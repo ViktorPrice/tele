@@ -502,105 +502,150 @@ class MainController:
     # === НОВЫЕ МЕТОДЫ ДИАГНОСТИЧЕСКИХ ФИЛЬТРОВ ===
 
     def apply_diagnostic_filters(self, diagnostic_criteria: Dict[str, List[str]]):
-        """НОВЫЙ МЕТОД: Применение диагностических фильтров"""
+        """Применение диагностических фильтров с использованием конфигурации"""
         try:
             self.logger.info(f"Применение диагностических фильтров: {diagnostic_criteria}")
-            
+
             if not self._has_data():
                 self.logger.warning("Нет данных для диагностической фильтрации")
                 if hasattr(self.view, 'show_warning'):
                     self.view.show_warning("Нет данных для диагностического анализа")
                 return
 
-            # Получаем все параметры
             all_params = self._get_all_parameters()
-            
-            # Применяем диагностические фильтры
-            filtered_params = self._filter_by_diagnostic_criteria(all_params, diagnostic_criteria)
-            
-            # Обновляем UI
-            self._update_ui_with_filtered_params(filtered_params)
-            
-            # Уведомляем о применении диагностических фильтров
+
+            # Используем конфигурацию из diagnostic_filters_config.py
+            from src.config.diagnostic_filters_config import CRITICAL_FILTERS, SYSTEM_FILTERS, FUNCTIONAL_FILTERS
+
+            def matches_patterns(param, patterns):
+                text = f"{param.get('signal_code', '').upper()} {param.get('description', '').upper()}"
+                return any(pat in text for pat in patterns)
+
+            filtered = []
+
+            for param in all_params:
+                match = False
+
+                # Проверка критичности
+                for crit_key in diagnostic_criteria.get('criticality', []):
+                    crit_conf = CRITICAL_FILTERS.get(crit_key)
+                    if crit_conf and matches_patterns(param, crit_conf['patterns']):
+                        match = True
+                        break
+
+                # Проверка систем
+                if not match:
+                    for sys_key in diagnostic_criteria.get('systems', []):
+                        sys_conf = SYSTEM_FILTERS.get(sys_key)
+                        if sys_conf and matches_patterns(param, sys_conf['patterns']):
+                            match = True
+                            break
+
+                # Проверка функций
+                if not match:
+                    for func_key in diagnostic_criteria.get('functions', []):
+                        func_conf = FUNCTIONAL_FILTERS.get(func_key)
+                        if func_conf and matches_patterns(param, func_conf['patterns']):
+                            match = True
+                            break
+
+                if match:
+                    filtered.append(param)
+
+            self._update_ui_with_filtered_params(filtered)
             self._emit_event('diagnostic_filters_applied', {
-                'count': len(filtered_params),
+                'count': len(filtered),
                 'criteria': diagnostic_criteria
             })
-            
-            self.logger.info(f"Диагностическая фильтрация завершена: {len(filtered_params)} параметров")
-            
+
+            self.logger.info(f"Диагностическая фильтрация завершена: {len(filtered)} параметров")
+
         except Exception as e:
             self.logger.error(f"Ошибка применения диагностических фильтров: {e}")
 
-    def _filter_by_diagnostic_criteria(self, parameters: List[Dict[str, Any]], 
-                                  criteria: Dict[str, List[str]]) -> List[Dict[str, Any]]:
-        """ИНТЕГРАЦИЯ реальных диагностических паттернов из анализа"""
+    def reset_diagnostic_filters(self):
+        """Сброс диагностических фильтров и показ всех параметров"""
         try:
-            filtered = []
-            
-            for param in parameters:
-                signal_code = param.get('signal_code', '').upper()
-                description = param.get('description', '').upper()
-                combined_text = f"{signal_code} {description}"
-                
-                matches = False
-                
-                # ИНТЕГРАЦИЯ: Реальные паттерны критичности
-                if criteria.get('criticality'):
-                    critical_patterns = {
-                        'emergency': ['FAULT', 'FAIL', 'EMERGENCY', 'ALARM', 'BCU_FAULT', 'EB_TRAINLINE'],
-                        'safety': ['WSP_FAULT', 'R_PRESSURE_LOW', 'DIRECT_BRAKE_FAULT', 'ERRC1_CODE_44'],
-                        'power_critical': ['KPSN175_GENERAL_ERR', 'IGBTSTATUS', 'FAIL_POWER'],
-                        'brake_critical': ['BCU_', 'BRAKE_', 'PRESSURE_', 'SLIDING_']
-                    }
-                    
-                    for crit_key in criteria['criticality']:
-                        patterns = critical_patterns.get(crit_key, [])
-                        if any(pattern in combined_text for pattern in patterns):
-                            matches = True
-                            break
-                
-                # ИНТЕГРАЦИЯ: Реальные паттерны систем
-                if criteria.get('systems'):
-                    system_patterns = {
-                        'traction': ['PST_', 'INV', 'TRACTION_', 'MOTOR_', 'EFFORT_'],
-                        'brakes': ['BCU_', 'BRAKE_', 'PRESSURE_', 'SLIDING_'],
-                        'doors': ['BUD', 'DOOR_', 'HINDRANCE'],
-                        'power': ['PSN_', 'QF', 'VOLTAGE', 'CURRENT', 'KPSN'],
-                        'climate': ['SOM_', 'KSK_', 'GOR_', 'TEMP'],
-                        'communication': ['BST_', 'RADIO_', 'GSM_', 'ETHERNET_']
-                    }
-                    
-                    for sys_key in criteria['systems']:
-                        patterns = system_patterns.get(sys_key, [])
-                        if any(pattern in signal_code for pattern in patterns):
-                            matches = True
-                            break
-                
-                # ИНТЕГРАЦИЯ: Реальные функциональные паттерны
-                if criteria.get('functions'):
-                    function_patterns = {
-                        'faults': ['FAULT', 'FAIL', 'ERROR', 'ERR_', 'ERRC1_'],
-                        'measurements': ['TEMP', 'PRESSURE', 'VOLTAGE', 'CURRENT', 'SPEED'],
-                        'states': ['STATE', 'STATUS', 'MODE', 'READY', 'OK', 'ISCLOSED', 'ISOPENED'],
-                        'diagnostics': ['HEARTBEAT', 'VERSION', 'AVAIL', 'CONNECT', 'CALC_RDY']
-                    }
-                    
-                    for func_key in criteria['functions']:
-                        patterns = function_patterns.get(func_key, [])
-                        if any(pattern in combined_text for pattern in patterns):
-                            matches = True
-                            break
-                
-                if matches:
-                    filtered.append(param)
-            
-            self.logger.info(f"🚨 Диагностическая фильтрация: {len(parameters)} → {len(filtered)} параметров")
-            return filtered
-            
+            self.logger.info("Сброс диагностических фильтров")
+
+            if self._has_data():
+                all_params = self._get_all_parameters()
+                self._update_ui_with_filtered_params(all_params)
+
+            self._emit_event('diagnostic_filters_applied', {
+                'count': 0,
+                'criteria': {}
+            })
+
+            self.logger.info("Диагностические фильтры сброшены")
+
         except Exception as e:
-            self.logger.error(f"Ошибка диагностической фильтрации: {e}")
-            return parameters
+            self.logger.error(f"Ошибка сброса диагностических фильтров: {e}")
+
+    def perform_diagnostic_analysis(self):
+        """Выполнение диагностического анализа с использованием конфигурации"""
+        try:
+            self.logger.info("Выполнение диагностического анализа")
+
+            if not self._has_data():
+                self.logger.warning("Нет данных для диагностического анализа")
+                if hasattr(self.view, 'show_warning'):
+                    self.view.show_warning("Нет данных для анализа")
+                return
+
+            all_params = self._get_all_parameters()
+
+            critical_faults = []
+            systems_status = {}
+            recommendations = []
+
+            from src.config.diagnostic_filters_config import CRITICAL_FILTERS, COMPONENT_MAPPING
+
+            # Анализ критичных неисправностей
+            for param in all_params:
+                text = f"{param.get('signal_code', '').upper()} {param.get('description', '').upper()}"
+                for crit_key, crit_conf in CRITICAL_FILTERS.items():
+                    if any(pat in text for pat in crit_conf['patterns']):
+                        critical_faults.append(param.get('signal_code', ''))
+                        break
+
+            # Анализ состояния систем (пример)
+            for sys_key in SYSTEM_FILTERS.keys():
+                count_faults = sum(
+                    1 for param in all_params
+                    if any(pat in f"{param.get('signal_code', '').upper()} {param.get('description', '').upper()}"
+                           for pat in SYSTEM_FILTERS[sys_key]['patterns'])
+                )
+                systems_status[sys_key] = {
+                    'fault_count': count_faults,
+                    'status': 'critical' if count_faults > 0 else 'normal'
+                }
+
+            # Формирование рекомендаций (пример)
+            if critical_faults:
+                recommendations.append("Проверьте критичные неисправности и примите меры.")
+            else:
+                recommendations.append("Система работает в нормальном режиме.")
+
+            results = {
+                'total_parameters': len(all_params),
+                'critical_faults': critical_faults,
+                'systems_status': systems_status,
+                'recommendations': recommendations,
+                'overall_status': 'critical' if critical_faults else 'normal',
+                'timestamp': datetime.now().isoformat()
+            }
+
+            # Отображение результатов через view
+            if hasattr(self.view, 'show_info'):
+                message = f"Диагностический анализ завершен. Статус: {results['overall_status'].upper()}"
+                self.view.show_info("Диагностический анализ", message)
+
+            self._emit_event('diagnostic_analysis_completed', results)
+            self.logger.info(f"Диагностический анализ завершен: {results['overall_status']}")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка диагностического анализа: {e}")
         
     # Добавляем недостающие методы в MainController:
     def _matches_criticality_filter(self, signal_code: str, description: str, filter_type: str) -> bool:
@@ -999,7 +1044,7 @@ class MainController:
             
             # Извлекаем уникальные линии
             lines = list(set(param.get('line', 'Unknown') for param in parameters))
-            lines = [line for line in lines if line and line != 'Unknown']
+            lines = [line for line in lines if line and (line != 'Unknown' or line == 'L_UNKNOWN')]
             
             # Извлекаем уникальные вагоны
             wagons = list(set(param.get('wagon', 'Unknown') for param in parameters))

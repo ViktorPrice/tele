@@ -20,20 +20,20 @@ class LineConfig:
     def _load_default_comments(self) -> Dict[str, str]:
         """Загрузка комментариев по умолчанию"""
         return {
-            'L_LCU_BIM1_CH': 'Линия БИМ1 - БУР',
-            'L_LCU_BIM2_CH': 'Линия БИМ2 - БУР',
-            'T_TV_MAIN_CH_A': 'Общая линия МСС (ТВ - БУР) канал A',
-            'T_TV_MAIN_CH_B': 'Общая линия МСС (ТВ - БУР) канал B',
-            'L_CAN_BLOK_CH': 'Линия CAN блокировки',
-            'L_CAN_ICU_CH_A': 'Линия CAN ICU канал A',
-            'L_CAN_ICU_CH_B': 'Линия CAN ICU канал B',
-            'L_TV_MAIN_CH_A': 'Линия ТВ основная канал A',
-            'L_TV_MAIN_CH_B': 'Линия ТВ основная канал B',
-            'L_LCUP_CH_A': 'Линия LCUP канал A',
-            'L_LCUP_CH_B': 'Линия LCUP канал B',
-            'L_REC_CH_A': 'Линия записи канал A',
-            'L_REC_CH_B': 'Линия записи канал B',
-            'L_CAN_POS_CH': 'Линия CAN позиционирования'
+            'L_LCU_BIM1_CH': 'БИМ1',
+            'L_LCU_BIM2_CH': 'БИМ2',
+            'T_TV_MAIN_CH_A': 'MAIN A',
+            'T_TV_MAIN_CH_B': 'MAIN B',
+            'L_CAN_BLOK_CH': 'BLOK',
+            'L_CAN_ICU_CH_A': 'CAN A',
+            'L_CAN_ICU_CH_B': 'CAN B',
+            'L_TV_MAIN_CH_A': 'ТВ A',
+            'L_TV_MAIN_CH_B': 'ТВ B',
+            'L_LCUP_CH_A': 'LCUP A',
+            'L_LCUP_CH_B': 'LCUP B',
+            'L_REC_CH_A': 'REC A',
+            'L_REC_CH_B': 'REC B',
+            'L_CAN_POS_CH': 'CAN POS'
         }
     
     def _load_from_file(self, file_path: str) -> None:

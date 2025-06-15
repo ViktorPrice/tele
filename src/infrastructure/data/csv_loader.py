@@ -952,6 +952,10 @@ class CSVDataLoader:
                         param_info['is_potentially_changed'] = self._is_potentially_changed_parameter(data[column])
                         parameters.append(param_info)
 
+            # Логирование параметров с их line для диагностики
+            for param in parameters:
+                self.logger.info(f"Параметр: {param.get('signal_code', '')}, line: {param.get('line', '')}")
+
             self.logger.info(f"Извлечено {len(parameters)} параметров")
             return parameters
 
