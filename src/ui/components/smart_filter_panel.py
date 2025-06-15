@@ -190,22 +190,44 @@ class SmartFilterPanel(ttk.Frame):
             self.logger.error(f"Ошибка переключения основной секции: {e}")
 
     def _create_signals_content(self, parent):
-        """Компактный контент для типов сигналов"""
+        """Компактный контент для типов сигналов с чекбоксами для множественного выбора"""
         signals_frame = ttk.Frame(parent)
         signals_frame.pack(fill="x", pady=2)
         
-        ttk.Label(signals_frame, text="Тип:", font=('Arial', 8)).pack(side="left")
+        ttk.Label(signals_frame, text="Типы:", font=('Arial', 8)).pack(anchor="w")
         
-        self.signals_combo = ttk.Combobox(
-            signals_frame,
-            values=["Все", "Аналоговые", "Дискретные", "Диагностические"],
-            state="readonly",
-            width=15,
-            font=('Arial', 8)
-        )
-        self.signals_combo.pack(side="left", padx=(5, 0))
-        self.signals_combo.set("Все")
-        self.signals_combo.bind('<<ComboboxSelected>>', self._on_signals_changed)
+        # Словарь для хранения переменных чекбоксов
+        self.signal_type_vars = {}
+        
+        # Категории сигналов для чекбоксов (убраны слова "сигналы" из описания)
+        categories = [
+            ("BY_ (Байт)", lambda s: s.startswith('BY_') or s == 'BY'),
+            ("F_ (Float)", lambda s: s.startswith('F_')),
+            ("S_ (S)", lambda s: s.startswith('S_') or s == 'S'),
+            ("B_ (Bool)", lambda s: (s.startswith('B_') or s == 'B') and not s.startswith('Banner')),
+            ("DW_ (DWord)", lambda s: s.startswith('DW_') or s == 'DW'),
+            ("W_ (Word)", lambda s: s.startswith('W_') or s == 'W'),
+            ("Banner", lambda s: s.startswith('Banner') or 'Banner#' in s),
+            ("Другие", lambda s: not any([
+                s.startswith(prefix) or s == prefix for prefix in
+                ['BY_', 'BY', 'F_', 'S_', 'S', 'B_', 'B', 'DW_', 'DW', 'W_', 'W']
+            ]) and not (s.startswith('Banner') or 'Banner#' in s))
+        ]
+        
+        # Фрейм для чекбоксов
+        checkbox_frame = ttk.Frame(signals_frame)
+        checkbox_frame.pack(fill="x", pady=2)
+        
+        for text, filter_func in categories:
+            var = tk.BooleanVar(value=True)
+            self.signal_type_vars[text] = (var, filter_func)
+            cb = ttk.Checkbutton(
+                checkbox_frame,
+                text=text,
+                variable=var,
+                command=self._on_signal_checkboxes_changed
+            )
+            cb.pack(side="left", padx=5, pady=1)
 
     def _create_wagons_content(self, parent):
         """ИСПРАВЛЕННЫЙ контент для вагонов с немедленным созданием кнопок"""
@@ -547,57 +569,19 @@ class SmartFilterPanel(ttk.Frame):
 
     # === ОБРАБОТЧИКИ СОБЫТИЙ ===
 
-    def _on_signals_changed(self, event=None):
-        """ИНТЕГРАЦИЯ реальной логики фильтрации из анализа"""
+    def _on_signal_checkboxes_changed(self):
+        """Обработка изменения выбора чекбоксов сигналов"""
         try:
-            selection = self.signals_combo.get()
-            self.logger.info(f"🔄 Изменение категории сигналов: '{selection}'")
-            
-            if selection == "Все":
-                self.state.signal_types = set(self.all_signal_types)
-            elif selection.startswith("BY_ сигналы"):
-                # Байтовые сигналы (uint8_t)
-                self.state.signal_types = {s for s in self.all_signal_types 
-                                        if s.startswith('BY_') or s == 'BY'}
-            elif selection.startswith("F_ сигналы"):
-                # Float сигналы (float32)
-                self.state.signal_types = {s for s in self.all_signal_types 
-                                        if s.startswith('F_')}
-            elif selection.startswith("S_ сигналы"):
-                # Системные сигналы
-                self.state.signal_types = {s for s in self.all_signal_types 
-                                        if s.startswith('S_') or s == 'S'}
-            elif selection.startswith("B_ сигналы"):
-                # Булевые сигналы (bool)
-                self.state.signal_types = {s for s in self.all_signal_types 
-                                        if (s.startswith('B_') or s == 'B') and not s.startswith('Banner')}
-            elif selection.startswith("DW_ сигналы"):
-                # Double Word сигналы (uint32_t)
-                self.state.signal_types = {s for s in self.all_signal_types 
-                                        if s.startswith('DW_') or s == 'DW'}
-            elif selection.startswith("W_ сигналы"):
-                # Word сигналы (uint16_t)
-                self.state.signal_types = {s for s in self.all_signal_types 
-                                        if s.startswith('W_') or s == 'W'}
-            elif selection.startswith("Banner сигналы"):
-                # Banner сигналы
-                self.state.signal_types = {s for s in self.all_signal_types 
-                                        if s.startswith('Banner') or 'Banner#' in s}
-            elif selection.startswith("Другие"):
-                # Все остальные сигналы
-                excluded_prefixes = ['BY_', 'BY', 'F_', 'S_', 'S', 'B_', 'B', 'DW_', 'DW', 'W_', 'W']
-                self.state.signal_types = {s for s in self.all_signal_types 
-                                        if not any(s.startswith(prefix) or s == prefix for prefix in excluded_prefixes) 
-                                        and not (s.startswith('Banner') or 'Banner#' in s)}
-            else:
-                # Fallback
-                self.state.signal_types = set(self.all_signal_types)
-            
-            self.logger.info(f"✅ Выбрано типов: {len(self.state.signal_types)} из {len(self.all_signal_types)}")
+            selected_signal_types = set()
+            for text, (var, filter_func) in self.signal_type_vars.items():
+                if var.get():
+                    filtered = filter(filter_func, self.all_signal_types)
+                    selected_signal_types.update(filtered)
+            self.state.signal_types = selected_signal_types
+            self.logger.info(f"✅ Выбрано типов сигналов: {len(selected_signal_types)}")
             self._notify_state_changed()
-            
         except Exception as e:
-            self.logger.error(f"Ошибка обработки категорий сигналов: {e}")
+            self.logger.error(f"Ошибка обработки чекбоксов сигналов: {e}")
 
     def _on_lines_search(self, event=None):
         """Обработка поиска по линиям"""
