@@ -1031,7 +1031,7 @@ class MainController:
             self.logger.error(f"Ошибка обновления UI после загрузки: {e}")
             
     def _update_smart_filter_panel_with_data(self, parameters: List[Dict[str, Any]]):
-        """НОВЫЙ МЕТОД: Обновление SmartFilterPanel с данными из CSV"""
+        """ИСПРАВЛЕННОЕ обновление SmartFilterPanel с данными из CSV"""
         try:
             filter_panel = self.get_ui_component('filter_panel')
             if not filter_panel:
@@ -1044,16 +1044,21 @@ class MainController:
             
             # Извлекаем уникальные линии
             lines = list(set(param.get('line', 'Unknown') for param in parameters))
-            lines = [line for line in lines if line and (line != 'Unknown' or line == 'L_UNKNOWN')]
+            lines = [line for line in lines if line and line != 'Unknown']
             
-            # Извлекаем уникальные вагоны
+            # КРИТИЧНО: Извлекаем реальные номера вагонов
             wagons = list(set(param.get('wagon', 'Unknown') for param in parameters))
             wagons = [str(wagon) for wagon in wagons if wagon and str(wagon) != 'Unknown']
             
-            self.logger.info(f"🔄 Обновление SmartFilterPanel:")
-            self.logger.info(f"   📊 Типы сигналов: {len(signal_types)} - {signal_types[:5]}...")
-            self.logger.info(f"   📡 Линии: {len(lines)} - {lines[:5]}...")
-            self.logger.info(f"   🚃 Вагоны: {len(wagons)} - {wagons}")
+            # КРИТИЧНО: Сортируем для стабильного отображения
+            signal_types = sorted(signal_types)
+            lines = sorted(lines)
+            wagons = sorted(wagons)
+            
+            self.logger.info(f"📡 Найдено данных для SmartFilterPanel:")
+            self.logger.info(f"   📊 Типы сигналов: {len(signal_types)}")
+            self.logger.info(f"   📡 Линии: {len(lines)}")
+            self.logger.info(f"   🚃 Вагоны: {wagons}")
             
             # Обновляем SmartFilterPanel
             if hasattr(filter_panel, 'update_signal_type_checkboxes'):
@@ -1064,14 +1069,31 @@ class MainController:
                 filter_panel.update_line_checkboxes(lines)
                 self.logger.info("✅ Линии обновлены в SmartFilterPanel")
             
+            # ВАЖНО: Вагоны обновляются отдельно с учетом маппинга
             if hasattr(filter_panel, 'update_wagon_checkboxes'):
                 filter_panel.update_wagon_checkboxes(wagons)
-                self.logger.info("✅ Вагоны обновлены в SmartFilterPanel")
-            
-            self.logger.info("✅ SmartFilterPanel полностью обновлен с данными из CSV")
+                self.logger.info("✅ Вагоны обновлены в SmartFilterPanel с маппингом")
             
         except Exception as e:
-            self.logger.error(f"Ошибка обновления SmartFilterPanel: {e}")        
+            self.logger.error(f"Ошибка обновления SmartFilterPanel: {e}")
+
+    def update_ui_after_data_load(self):
+        """ИСПРАВЛЕННОЕ обновление UI после загрузки данных"""
+        try:
+            # Инициализируем временной диапазон
+            self._init_time_range_after_load()
+            
+            # Загружаем все параметры
+            all_params = self._get_all_parameters()
+            
+            # ИСПРАВЛЕНО: Применяем правильный маппинг к параметрам
+            self._update_ui_with_filtered_params(all_params)
+            
+            self.logger.info(f"UI обновлен после загрузки данных: {len(all_params)} параметров")
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления UI после загрузки: {e}")
+       
 
     def _init_time_range_after_load(self):
         """Инициализация временного диапазона после загрузки данных"""
@@ -1620,39 +1642,160 @@ class MainController:
     # === ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ===
 
     def _update_ui_with_filtered_params(self, parameters: List[Dict[str, Any]]):
-        """Обновление UI с отфильтрованными параметрами"""
+        """ИСПРАВЛЕННОЕ обновление UI с правильным маппингом вагонов"""
         try:
-            # Проверяем кэш UI обновлений
-            cache_key = f"params_{len(parameters)}_{hash(str(parameters[:5]))}"
-            current_time = time.time()
+            # Получаем filter_panel для доступа к маппингу вагонов
+            filter_panel = self.get_ui_component('filter_panel')
+            wagon_mapping = {}
             
-            if (cache_key in self._ui_update_cache and 
-                (current_time - self._last_ui_update) < 0.5):
-                self.logger.debug("Использован кэш UI обновления")
-                return
+            if filter_panel and hasattr(filter_panel, 'wagon_mapping'):
+                wagon_mapping = filter_panel.wagon_mapping
+                self.logger.info(f"🔄 Используется маппинг из filter_panel: {wagon_mapping}")
+            else:
+                self.logger.warning("⚠️ Маппинг вагонов не найден в filter_panel")
             
-            # Обновляем parameter_panel
+            # ИСПРАВЛЕНО: Преобразуем номера вагонов в параметрах
+            transformed_params = []
+            for param in parameters:
+                new_param = param.copy()
+                original_wagon = param.get('wagon', '')
+                
+                # КРИТИЧНО: Применяем ПРЯМОЙ маппинг (логический -> реальный)
+                if original_wagon and str(original_wagon).isdigit():
+                    logical_wagon = int(original_wagon)
+                    if logical_wagon in wagon_mapping:
+                        real_wagon = wagon_mapping[logical_wagon]
+                        new_param['wagon'] = real_wagon
+                        self.logger.debug(f"🔄 Маппинг вагона: логический {logical_wagon} → реальный {real_wagon}")
+                    else:
+                        # Если логический номер не найден в маппинге, оставляем как есть
+                        new_param['wagon'] = str(original_wagon)
+                        self.logger.debug(f"⚠️ Логический вагон {logical_wagon} не найден в маппинге, оставляем: {original_wagon}")
+                else:
+                    # Если это не число или пустое значение, оставляем как есть
+                    new_param['wagon'] = str(original_wagon) if original_wagon else ''
+                    self.logger.debug(f"ℹ️ Нечисловой вагон оставлен как есть: {original_wagon}")
+                
+                transformed_params.append(new_param)
+            
+            # Обновляем parameter_panel с преобразованными параметрами
             parameter_panel = self.get_ui_component('parameter_panel')
             if parameter_panel:
                 if hasattr(parameter_panel, 'update_parameters'):
-                    parameter_panel.update_parameters(parameters)
+                    parameter_panel.update_parameters(transformed_params)
+                    self.logger.info(f"✅ Параметры обновлены с маппингом: {len(transformed_params)} элементов")
                 elif hasattr(parameter_panel, 'set_parameters'):
-                    parameter_panel.set_parameters(parameters)
-                else:
-                    self.logger.warning("Метод обновления параметров не найден в parameter_panel")
+                    parameter_panel.set_parameters(transformed_params)
+                    self.logger.info(f"✅ Параметры установлены с маппингом: {len(transformed_params)} элементов")
+            else:
+                self.logger.error("❌ parameter_panel не найден")
             
-            # Обновляем статистику
+            # Обновляем статистику в главном окне
             if hasattr(self.view, 'update_parameter_count'):
                 self.view.update_parameter_count(len(parameters))
             
-            # Кэшируем обновление
-            self._ui_update_cache[cache_key] = current_time
-            self._last_ui_update = current_time
-                
-            self.logger.debug(f"UI обновлен с {len(parameters)} параметрами")
+            # Обновляем счетчики выбранных параметров
+            selected_count = len(self._get_selected_parameters_unified())
+            if hasattr(self.view, 'update_telemetry_info'):
+                # Получаем текущую информацию для обновления счетчика
+                current_filename = getattr(self, 'current_file_path', '')
+                if current_filename:
+                    filename = Path(current_filename).name
+                    self.view.update_telemetry_info(
+                        filename=filename,
+                        params_count=len(parameters),
+                        selected_count=selected_count
+                    )
+            
+            self.logger.info(f"✅ UI обновлен с правильным маппингом вагонов: {len(parameters)} → {len(transformed_params)} параметров")
             
         except Exception as e:
-            self.logger.error(f"Ошибка обновления UI с параметрами: {e}")
+            self.logger.error(f"❌ Ошибка обновления UI с параметрами: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def handle_file_load_result(self, success: bool, file_path: str):
+        """ИСПРАВЛЕННАЯ обработка результата загрузки с полной синхронизацией маппинга"""
+        try:
+            self._stop_loading()
+            
+            if success:
+                # Получаем количество записей и параметров
+                all_params = self._get_all_parameters()
+                params_count = len(all_params)
+                
+                # КРИТИЧНО: Извлекаем МЦД информацию
+                mcd_info = None
+                if hasattr(self.model, 'data_loader') and self.model.data_loader:
+                    mcd_info = self.model.data_loader.extract_and_update_mcd_info(file_path)
+                    self.logger.info(f"🔍 МЦД информация: {mcd_info}")
+                
+                # КРИТИЧНО: Сначала обновляем SmartFilterPanel с правильным ведущим вагоном
+                filter_panel = self.get_ui_component('filter_panel')
+                if filter_panel and mcd_info and mcd_info.get('leading_unit'):
+                    try:
+                        leading_unit = int(mcd_info['leading_unit'])
+                        
+                        # Принудительно обновляем ведущий вагон и маппинг
+                        filter_panel.leading_wagon = leading_unit
+                        filter_panel._create_wagon_mapping(leading_unit)
+                        
+                        # Извлекаем реальные номера вагонов из данных
+                        real_wagons = list(set(str(param.get('wagon', '')) for param in all_params))
+                        real_wagons = [wagon for wagon in real_wagons if wagon and wagon != 'Unknown']
+                        
+                        # Обновляем filter_panel с реальными данными о вагонах
+                        if hasattr(filter_panel, 'update_wagon_checkboxes'):
+                            filter_panel.update_wagon_checkboxes(real_wagons)
+                            self.logger.info(f"✅ Вагоны обновлены в SmartFilterPanel: {real_wagons}")
+                        
+                        self.logger.info(f"✅ SmartFilterPanel синхронизирован с ведущим вагоном: {leading_unit}")
+                        self.logger.info(f"✅ Маппинг вагонов: {filter_panel.wagon_mapping}")
+                        
+                    except ValueError:
+                        self.logger.error(f"❌ Неверный формат ведущего вагона: {mcd_info['leading_unit']}")
+                
+                # ВАЖНО: Обновляем заголовок ПОСЛЕ установки маппинга
+                file_name = Path(file_path).name
+                if mcd_info and hasattr(self.view, 'update_telemetry_info'):
+                    self.view.update_telemetry_info(
+                        filename=file_name,
+                        params_count=params_count,
+                        selected_count=0,
+                        line_mcd=mcd_info.get('line_mcd', ''),
+                        route=mcd_info.get('route', ''),
+                        train=mcd_info.get('train', ''),
+                        leading_unit=mcd_info.get('leading_unit', '')
+                    )
+                    self.logger.info(f"✅ Заголовок обновлен с МЦД данными")
+                
+                # КРИТИЧНО: Теперь обновляем UI с параметрами (применится правильный маппинг)
+                self.update_ui_after_data_load()
+                
+                # Обновляем SmartFilterPanel с данными из CSV
+                self._update_smart_filter_panel_with_data(all_params)
+                
+                # Принудительно обновляем интерфейс
+                if hasattr(self.view, 'root'):
+                    self.view.root.update_idletasks()
+                    
+                self.logger.info(f"✅ Файл успешно загружен с правильным маппингом: {file_path}")
+                
+                if hasattr(self.view, 'show_info'):
+                    self.view.show_info("Успешно", f"Файл {Path(file_path).name} загружен")
+                    
+            else:
+                self.logger.error(f"❌ Ошибка загрузки файла: {file_path}")
+                if hasattr(self.view, 'show_error'):
+                    self.view.show_error("Ошибка", f"Не удалось загрузить файл {Path(file_path).name}")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обработки результата загрузки: {e}")
+            if hasattr(self.view, 'show_error'):
+                self.view.show_error("Ошибка", f"Ошибка обработки файла: {e}")
+
+
+  
 
     def update_parameters(self, parameters: List[Dict[str, Any]]):
         """Обновление списка параметров во всех панелях"""
@@ -1677,8 +1820,6 @@ class MainController:
             self.logger.error(f"❌ Ошибка обновления параметров: {e}")
             import traceback
             traceback.print_exc()
-
-    # === НЕДОСТАЮЩИЕ МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ ===
 
     def disable_changed_only_checkbox(self):
         """Отключение чекбокса 'только изменяемые' в SmartFilterPanel"""
