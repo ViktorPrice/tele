@@ -41,6 +41,12 @@ class MainController:
         self.view = view
         self.logger = logging.getLogger(self.__class__.__name__)
 
+        # Текущие значения МЦД для сохранения состояния
+        self._current_line_mcd = ""
+        self._current_route = ""
+        self._current_train = ""
+        self._current_leading_unit = ""
+
         # Сервисы (внедряются извне)
         self.filtering_service = None
         self.plot_manager = None
@@ -1120,29 +1126,157 @@ class MainController:
 
     # === МЕТОДЫ ФИЛЬТРАЦИИ ===
 
-    def apply_filters(self, **kwargs):
-        """ИСПРАВЛЕННЫЙ метод применения фильтров с детальным логированием"""
+    def apply_filters(self, changed_only: bool = False, **kwargs):
+        """ИСПРАВЛЕННЫЙ метод применения фильтров с поддержкой приоритетного режима"""
         try:
-            self.logger.info(f"🔄 Применение фильтров: {kwargs}")
+            self.logger.info(f"🔄 Применение фильтров (changed_only={changed_only}): {kwargs}")
             
             if not self._has_data():
                 self._show_no_data_message()
                 return
 
-            # Получаем все параметры
-            all_params = self._get_all_parameters()
-            self.logger.info(f"📊 Всего параметров для фильтрации: {len(all_params)}")
-
-            # ИСПРАВЛЕНО: Применяем простую фильтрацию с детальным логированием
-            filtered_params = self._detailed_filter_parameters(all_params, kwargs)
+            # КРИТИЧНО: Проверяем состояние приоритетного чекбокса
+            priority_mode_active = self._is_priority_mode_active()
             
-            # Обновляем UI
+            if changed_only or priority_mode_active:
+                self.logger.info("🔥 Приоритетный режим активен, применяем фильтр изменяемых параметров")
+                self._apply_priority_filters_with_criteria(kwargs)
+                return
+
+            # Обычная фильтрация только если приоритетный режим не активен
+            self.logger.info("📊 Применение обычных фильтров")
+            all_params = self._get_all_parameters()
+            filtered_params = self._detailed_filter_parameters(all_params, kwargs)
             self._update_ui_with_filtered_params(filtered_params)
             
-            self.logger.info(f"✅ Фильтрация завершена: {len(filtered_params)} из {len(all_params)} параметров")
+            self.logger.info(f"✅ Обычная фильтрация завершена: {len(filtered_params)} из {len(all_params)} параметров")
 
         except Exception as e:
             self.logger.error(f"❌ Ошибка применения фильтров: {e}")
+
+    def _is_priority_mode_active(self) -> bool:
+        """НОВЫЙ МЕТОД: Проверка активности приоритетного режима"""
+        try:
+            # Проверяем в SmartFilterPanel
+            filter_panel = self.get_ui_component('filter_panel')
+            if filter_panel:
+                # Способ 1: Через метод is_changed_only_active (если есть)
+                if hasattr(filter_panel, 'is_changed_only_active'):
+                    return filter_panel.is_changed_only_active()
+                
+                # Способ 2: Через прямой доступ к чекбоксу
+                if hasattr(filter_panel, 'changed_only_var'):
+                    return filter_panel.changed_only_var.get()
+                
+                # Способ 3: Через состояние фильтра
+                if hasattr(filter_panel, 'state') and hasattr(filter_panel.state, 'changed_only'):
+                    return filter_panel.state.changed_only
+            
+            # Проверяем в time_panel
+            time_panel = self.get_ui_component('time_panel')
+            if time_panel:
+                if hasattr(time_panel, 'is_changed_only_enabled'):
+                    return time_panel.is_changed_only_enabled()
+                
+                if hasattr(time_panel, 'changed_only_var'):
+                    return time_panel.changed_only_var.get()
+            
+            self.logger.debug("🔍 Приоритетный режим не активен")
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка проверки приоритетного режима: {e}")
+            return False
+
+    def _apply_priority_filters_with_criteria(self, filter_criteria: Dict[str, Any]):
+        """НОВЫЙ МЕТОД: Применение приоритетных фильтров с дополнительными критериями"""
+        try:
+            self.logger.info(f"🔥 Применение приоритетных фильтров с критериями: {filter_criteria}")
+            
+            # Получаем временной диапазон
+            start_time, end_time = self._get_time_range_unified()
+            if not start_time or not end_time:
+                self._show_time_error()
+                return
+
+            # Получаем session_id
+            session_id = self.get_session_id()
+
+            # Получаем изменяемые параметры
+            changed_params = self._get_changed_parameters(start_time, end_time, session_id)
+            if not changed_params:
+                self.logger.warning("⚠️ Изменяемые параметры не найдены")
+                if hasattr(self.view, 'show_warning'):
+                    self.view.show_warning("Изменяемые параметры не найдены в указанном диапазоне")
+                return
+
+            self.logger.info(f"🔍 Найдено {len(changed_params)} изменяемых параметров")
+
+            # КРИТИЧНО: Применяем дополнительные фильтры к изменяемым параметрам
+            if filter_criteria:
+                filtered_changed_params = self._detailed_filter_parameters(changed_params, filter_criteria)
+                self.logger.info(f"🎯 После применения фильтров: {len(filtered_changed_params)} из {len(changed_params)} параметров")
+            else:
+                filtered_changed_params = changed_params
+
+            # Обновляем UI
+            self._update_ui_with_filtered_params(filtered_changed_params)
+            
+            # Генерируем событие
+            self._emit_event('changed_params_filter_applied', {
+                'count': len(filtered_changed_params),
+                'total_changed': len(changed_params),
+                'time_range': {'start': start_time, 'end': end_time},
+                'filter_criteria': filter_criteria
+            })
+
+            self.logger.info(f"✅ Приоритетная фильтрация завершена: {len(filtered_changed_params)} параметров")
+
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка приоритетной фильтрации с критериями: {e}")
+
+    def _get_changed_parameters(self, start_time: str, end_time: str, session_id: str) -> List[Dict[str, Any]]:
+        """НОВЫЙ МЕТОД: Получение изменяемых параметров"""
+        try:
+            # Способ 1: Через Use Case
+            if self.find_changed_params_use_case:
+                request = FindChangedParametersRequest(
+                    session_id=session_id,
+                    from_time=start_time,
+                    to_time=end_time
+                )
+                response = self.find_changed_params_use_case.execute(request)
+                
+                if response.success and response.changed_parameters:
+                    self.logger.info(f"✅ Use Case: найдено {len(response.changed_parameters)} изменяемых параметров")
+                    return response.changed_parameters
+
+            # Способ 2: Через data_loader
+            if (hasattr(self.model, 'data_loader') and 
+                self.model.data_loader and 
+                hasattr(self.model.data_loader, 'filter_changed_params')):
+                
+                changed_params = self.model.data_loader.filter_changed_params(start_time, end_time)
+                if changed_params:
+                    self.logger.info(f"✅ CSV Loader: найдено {len(changed_params)} изменяемых параметров")
+                    return changed_params
+
+            # Способ 3: Через DataModel
+            if (hasattr(self.model, 'data_model') and
+                hasattr(self.model.data_model, 'find_changed_parameters_in_range')):
+                
+                changed_params = self.model.data_model.find_changed_parameters_in_range(start_time, end_time)
+                if changed_params:
+                    self.logger.info(f"✅ DataModel: найдено {len(changed_params)} изменяемых параметров")
+                    return changed_params
+
+            self.logger.warning("❌ Все методы поиска изменяемых параметров не сработали")
+            return []
+
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка получения изменяемых параметров: {e}")
+            return []
+
 
     def _detailed_filter_parameters(self, parameters: List[Dict[str, Any]], 
                                criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -1701,10 +1835,19 @@ class MainController:
                 current_filename = getattr(self, 'current_file_path', '')
                 if current_filename:
                     filename = Path(current_filename).name
+                    # Передаем текущие сохранённые МЦД параметры, чтобы не затирать их
+                    line_mcd = getattr(self.view, '_current_line_mcd', '')
+                    route = getattr(self.view, '_current_route', '')
+                    train = getattr(self.view, '_current_train', '')
+                    leading_unit = getattr(self.view, '_current_leading_unit', '')
                     self.view.update_telemetry_info(
-                        filename=filename,
+                        file_name=filename,
                         params_count=len(parameters),
-                        selected_count=selected_count
+                        selected_count=selected_count,
+                        line_mcd=line_mcd,
+                        route=route,
+                        train=train,
+                        leading_unit=leading_unit
                     )
             
             self.logger.info(f"✅ UI обновлен с правильным маппингом вагонов: {len(parameters)} → {len(transformed_params)} параметров")
@@ -1759,7 +1902,7 @@ class MainController:
                 file_name = Path(file_path).name
                 if mcd_info and hasattr(self.view, 'update_telemetry_info'):
                     self.view.update_telemetry_info(
-                        filename=file_name,
+                        file_name=file_name,
                         params_count=params_count,
                         selected_count=0,
                         line_mcd=mcd_info.get('line_mcd', ''),

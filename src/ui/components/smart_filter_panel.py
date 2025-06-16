@@ -256,7 +256,11 @@ class SmartFilterPanel(ttk.Frame):
         
         ttk.Button(group_frame, text="Все", width=6, command=self._select_all_wagons).pack(side="left", padx=1)
         ttk.Button(group_frame, text="Нет", width=6, command=self._deselect_all_wagons).pack(side="left", padx=1)
-        ttk.Button(group_frame, text="Г+М", width=6, command=self._select_head_motor).pack(side="left", padx=1)
+        # ttk.Button(group_frame, text="Г+М", width=6, command=self._select_head_motor).pack(side="left", padx=1)
+        ttk.Button(group_frame, text="Г", width=6, command=self._select_group_g).pack(side="left", padx=1)
+        ttk.Button(group_frame, text="М", width=6, command=self._select_group_m).pack(side="left", padx=1)
+        ttk.Button(group_frame, text="НМ", width=6, command=self._select_group_nm).pack(side="left", padx=1)
+        ttk.Button(group_frame, text="БО", width=6, command=self._select_group_bo).pack(side="left", padx=1)
 
     def _create_wagon_buttons_immediately(self):
         """ИСПРАВЛЕННОЕ создание кнопок вагонов с правильными callback"""
@@ -391,40 +395,6 @@ class SmartFilterPanel(ttk.Frame):
             self.diag_vars[f"func_{key}"] = var
             ttk.Checkbutton(func_frame, text=text, variable=var,
                         command=self._on_diagnostic_changed).pack(side="left", padx=2)
-
-    def _create_quick_actions_bar(self):
-        """Горизонтальная панель быстрых действий"""
-        actions_bar = ttk.Frame(self)
-        actions_bar.grid(row=2, column=0, sticky="ew", pady=(5, 0))
-        
-        # Специальные режимы
-        self.changed_only_var = tk.BooleanVar()
-        self.changed_only_checkbox = ttk.Checkbutton(
-            actions_bar,
-            text="🔥 Изменяемые",
-            variable=self.changed_only_var,
-            command=self._on_changed_only_toggle
-        )
-        self.changed_only_checkbox.pack(side="left")
-        
-        # Разделитель
-        ttk.Separator(actions_bar, orient="vertical").pack(side="left", fill="y", padx=5)
-        
-        # Быстрые пресеты
-        presets = [
-            ("Все", self._preset_all),
-            ("Тяга", self._preset_traction),
-            ("Тормоза", self._preset_brakes),
-            ("Сброс", self._preset_reset)
-        ]
-        
-        for text, command in presets:
-            ttk.Button(
-                actions_bar,
-                text=text,
-                width=6,
-                command=command
-            ).pack(side="left", padx=1)
 
     # === НОВЫЕ МЕТОДЫ ДИНАМИЧЕСКОГО МАППИНГА ===
 
@@ -689,83 +659,31 @@ class SmartFilterPanel(ttk.Frame):
         except Exception as e:
             self.logger.error(f"Ошибка переключения режима: {e}")
 
-    # === БЫСТРЫЕ ПРЕСЕТЫ С МАППИНГОМ ===
-
-    def _preset_all(self):
-        """Пресет: выбрать все"""
-        self.state.signal_types = set(self.all_signal_types)
-        self.state.wagons = self.real_wagons_in_data.copy()
-        self.state.lines = set(self.all_lines)
-        self.signals_combo.set("Все")
-        self._update_wagon_buttons()
-        self._notify_state_changed()
-
-    def _preset_traction(self):
-        """ИНТЕГРАЦИЯ реального пресета тяговых систем"""
+    def set_changed_only_mode(self, enabled: bool):
+        """НОВЫЙ МЕТОД: Установка режима 'только изменяемые'"""
         try:
-            # Реальные тяговые сигналы из анализа
-            traction_signal_types = {s for s in self.all_signal_types 
-                                if any(pattern in s.upper() for pattern in 
-                                        ['PST_', 'INV', 'EFFORT_', 'MOTOR_', 'TRACTION_'])}
+            if hasattr(self, 'changed_only_var'):
+                self.changed_only_var.set(enabled)
             
-            # Моторные вагоны
-            motor_real = set()
-            for logical_num, real_wagon in self.wagon_mapping.items():
-                if real_wagon in self.real_wagons_in_data and 'м' in real_wagon:
-                    motor_real.add(real_wagon)
+            if hasattr(self, 'state'):
+                self.state.changed_only = enabled
             
-            self.state.signal_types = traction_signal_types
-            self.state.wagons = motor_real
-            
-            # Обновляем UI
-            self.signals_combo.set("S_ сигналы (Системные)")
-            self._update_wagon_buttons()
-            self._notify_state_changed()
-            
-            self.logger.info(f"🚂 Пресет тяговые: {len(traction_signal_types)} сигналов, {len(motor_real)} вагонов")
+            self.logger.info(f"🔄 Режим 'только изменяемые' установлен: {enabled}")
             
         except Exception as e:
-            self.logger.error(f"Ошибка пресета тяговых систем: {e}")
+            self.logger.error(f"❌ Ошибка установки режима 'только изменяемые': {e}")
 
-    def _preset_brakes(self):
-        """ИНТЕГРАЦИЯ реального пресета тормозных систем"""
+    def sync_changed_only_state(self, enabled: bool):
+        """НОВЫЙ МЕТОД: Синхронизация состояния 'только изменяемые'"""
         try:
-            # Реальные тормозные сигналы из анализа
-            brake_signal_types = {s for s in self.all_signal_types 
-                                if any(pattern in s.upper() for pattern in 
-                                    ['BCU_', 'BRAKE_', 'PRESSURE_', 'VALVE_', 'KNORR'])}
+            self.set_changed_only_mode(enabled)
             
-            self.state.signal_types = brake_signal_types
-            self.state.wagons = self.real_wagons_in_data.copy()  # Все вагоны
-            
-            # Обновляем UI
-            self.signals_combo.set("BY_ сигналы (Байт)")
-            self._update_wagon_buttons()
-            self._notify_state_changed()
-            
-            self.logger.info(f"🛑 Пресет тормозные: {len(brake_signal_types)} сигналов")
+            # Если включен приоритетный режим, немедленно фильтруем
+            if enabled and self.controller:
+                self._notify_state_changed()
             
         except Exception as e:
-            self.logger.error(f"Ошибка пресета тормозных систем: {e}")
-
-    def _preset_reset(self):
-        """ИСПРАВЛЕННЫЙ пресет: сброс"""
-        try:
-            self.state.signal_types = set(self.all_signal_types)
-            self.state.wagons = self.real_wagons_in_data.copy()
-            self.state.lines = set(self.all_lines)
-            self.state.criticality.clear()
-            self.state.systems.clear()
-            
-            self.signals_combo.set("Все")
-            self.changed_only_var.set(False)
-            for var in self.diag_vars.values():
-                var.set(False)
-            self._update_wagon_buttons()
-            self._notify_state_changed()
-            
-        except Exception as e:
-            self.logger.error(f"Ошибка сброса: {e}")
+            self.logger.error(f"❌ Ошибка синхронизации состояния 'только изменяемые': {e}")
 
     # === МЕТОДЫ УПРАВЛЕНИЯ ВАГОНАМИ С МАППИНГОМ ===
 
@@ -805,33 +723,93 @@ class SmartFilterPanel(ttk.Frame):
         except Exception as e:
             self.logger.error(f"Ошибка отмены выбора вагонов: {e}")
 
-    def _select_head_motor(self):
-        """ИСПРАВЛЕННЫЙ выбор головных и моторных вагонов с синхронизацией UI"""
+    # def _select_head_motor(self):
+    #     """ИСПРАВЛЕННЫЙ выбор головных и моторных вагонов с синхронизацией UI"""
+    #     try:
+    #         # Находим головные и моторные вагоны по реальным номерам
+    #         head_motor_real = set()
+    #         
+    #         for logical_num, real_wagon in self.wagon_mapping.items():
+    #             if real_wagon in self.real_wagons_in_data:
+    #                 # Головные (содержат 'г') и моторные (содержат 'м')
+    #                 if 'г' in real_wagon or 'м' in real_wagon:
+    #                     head_motor_real.add(real_wagon)
+    #         
+    #         # Обновляем состояние фильтра
+    #         self.state.wagons = head_motor_real
+    #         
+    #         # ИСПРАВЛЕНО: Синхронизируем UI с новым состоянием
+    #         for logical_num, var in self.wagon_vars.items():
+    #             real_wagon = self.wagon_mapping.get(logical_num)
+    #             is_selected = real_wagon in head_motor_real
+    #             var.set(is_selected)
+    #         
+    #         self._update_statistics()
+    #         self._notify_state_changed()
+    #         self.logger.info(f"🚃 Выбраны головные+моторные: {head_motor_real}")
+    #         
+    #     except Exception as e:
+    #         self.logger.error(f"Ошибка выбора головных и моторных: {e}")
+
+    def _select_group_g(self):
+        """Выбор группы Г (1Г, 9Г)"""
         try:
-            # Находим головные и моторные вагоны по реальным номерам
-            head_motor_real = set()
-            
-            for logical_num, real_wagon in self.wagon_mapping.items():
-                if real_wagon in self.real_wagons_in_data:
-                    # Головные (содержат 'г') и моторные (содержат 'м')
-                    if 'г' in real_wagon or 'м' in real_wagon:
-                        head_motor_real.add(real_wagon)
-            
-            # Обновляем состояние фильтра
-            self.state.wagons = head_motor_real
-            
-            # ИСПРАВЛЕНО: Синхронизируем UI с новым состоянием
+            group_g = {"1г", "9г"}
+            selected = {w for w in self.real_wagons_in_data if w.lower() in group_g}
+            self.state.wagons = selected
             for logical_num, var in self.wagon_vars.items():
                 real_wagon = self.wagon_mapping.get(logical_num)
-                is_selected = real_wagon in head_motor_real
-                var.set(is_selected)
-            
+                var.set(real_wagon in selected)
             self._update_statistics()
             self._notify_state_changed()
-            self.logger.info(f"🚃 Выбраны головные+моторные: {head_motor_real}")
-            
+            self.logger.info(f"🚃 Выбрана группа Г: {selected}")
         except Exception as e:
-            self.logger.error(f"Ошибка выбора головных и моторных: {e}")
+            self.logger.error(f"Ошибка выбора группы Г: {e}")
+
+    def _select_group_m(self):
+        """Выбор группы М (2М, 6М, 8М, 12М, 10М)"""
+        try:
+            group_m = {"2м", "6м", "8м", "12м", "10м"}
+            selected = {w for w in self.real_wagons_in_data if w.lower() in group_m}
+            self.state.wagons = selected
+            for logical_num, var in self.wagon_vars.items():
+                real_wagon = self.wagon_mapping.get(logical_num)
+                var.set(real_wagon in selected)
+            self._update_statistics()
+            self._notify_state_changed()
+            self.logger.info(f"🚃 Выбрана группа М: {selected}")
+        except Exception as e:
+            self.logger.error(f"Ошибка выбора группы М: {e}")
+
+    def _select_group_nm(self):
+        """Выбор группы НМ (3НМ, 7НМ)"""
+        try:
+            group_nm = {"3нм", "7нм"}
+            selected = {w for w in self.real_wagons_in_data if w.lower() in group_nm}
+            self.state.wagons = selected
+            for logical_num, var in self.wagon_vars.items():
+                real_wagon = self.wagon_mapping.get(logical_num)
+                var.set(real_wagon in selected)
+            self._update_statistics()
+            self._notify_state_changed()
+            self.logger.info(f"🚃 Выбрана группа НМ: {selected}")
+        except Exception as e:
+            self.logger.error(f"Ошибка выбора группы НМ: {e}")
+
+    def _select_group_bo(self):
+        """Выбор группы БО (11БО, 13БО)"""
+        try:
+            group_bo = {"11бо", "13бо"}
+            selected = {w for w in self.real_wagons_in_data if w.lower() in group_bo}
+            self.state.wagons = selected
+            for logical_num, var in self.wagon_vars.items():
+                real_wagon = self.wagon_mapping.get(logical_num)
+                var.set(real_wagon in selected)
+            self._update_statistics()
+            self._notify_state_changed()
+            self.logger.info(f"🚃 Выбрана группа БО: {selected}")
+        except Exception as e:
+            self.logger.error(f"Ошибка выбора группы БО: {e}")
 
     def _update_wagon_buttons(self):
         """ИСПРАВЛЕННОЕ обновление состояния кнопок вагонов"""
@@ -853,25 +831,59 @@ class SmartFilterPanel(ttk.Frame):
     # === ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ===
 
     def _notify_state_changed(self):
-        """ИСПРАВЛЕННОЕ уведомление об изменении состояния"""
+        """ИСПРАВЛЕННОЕ уведомление об изменении состояния с проверкой приоритетного режима"""
         try:
-            if not self.is_updating:
-                self._update_statistics()
-                self.observer.notify(self.state)
+            if self.controller and hasattr(self.controller, 'apply_filters'):
+                # КРИТИЧНО: Проверяем состояние приоритетного чекбокса
+                changed_only = self._is_changed_only_active()
                 
-                # ИСПРАВЛЕНО: Принудительно применяем фильтры через контроллер
-                if self.controller and not self.state.changed_only:
-                    filters = self.state.to_dict()
-                    self.logger.info(f"🔄 Применение фильтров: {filters}")
-                    
-                    if hasattr(self.controller, 'apply_filters'):
-                        self.controller.apply_filters(**filters)
-                        self.logger.info("✅ Фильтры применены через контроллер")
-                    else:
-                        self.logger.error("❌ Метод apply_filters не найден в контроллере")
-                        
+                # Получаем текущие критерии фильтрации
+                filter_criteria = {
+                    'signal_types': list(self.state.signal_types),
+                    'lines': list(self.state.lines),
+                    'wagons': list(self.state.wagons)
+                }
+                
+                self.logger.info(f"🔄 Уведомление контроллера (changed_only={changed_only}): {filter_criteria}")
+                
+                # Передаем состояние приоритетного режима в контроллер
+                self.controller.apply_filters(
+                    changed_only=changed_only,
+                    **filter_criteria
+                )
+            else:
+                self.logger.warning("⚠️ Контроллер не доступен для уведомления")
+                
         except Exception as e:
-            self.logger.error(f"Ошибка уведомления об изменении: {e}")
+            self.logger.error(f"❌ Ошибка уведомления об изменении состояния: {e}")
+
+    def _is_changed_only_active(self) -> bool:
+        """НОВЫЙ МЕТОД: Проверка активности режима 'только изменяемые'"""
+        try:
+            # Способ 1: Через собственную переменную
+            if hasattr(self, 'changed_only_var') and self.changed_only_var:
+                return self.changed_only_var.get()
+            
+            # Способ 2: Через состояние
+            if hasattr(self, 'state') and hasattr(self.state, 'changed_only'):
+                return self.state.changed_only
+            
+            # Способ 3: Через time_panel
+            if self.controller:
+                time_panel = self.controller.get_ui_component('time_panel')
+                if time_panel:
+                    if hasattr(time_panel, 'is_changed_only_enabled'):
+                        return time_panel.is_changed_only_enabled()
+                    if hasattr(time_panel, 'changed_only_var'):
+                        return time_panel.changed_only_var.get()
+            
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка проверки режима 'только изменяемые': {e}")
+            return False
+
+
 
     def _update_statistics(self):
         """ИСПРАВЛЕННОЕ обновление статистики с реальными номерами"""
@@ -914,6 +926,35 @@ class SmartFilterPanel(ttk.Frame):
             self.logger.debug("Синхронизация с time_panel выполнена")
         except Exception as e:
             self.logger.error(f"Ошибка синхронизации с time_panel: {e}")
+
+    def enable_changed_only_checkbox(self):
+        """Включение чекбокса 'только изменяемые'"""
+        try:
+            if hasattr(self, 'changed_only_checkbox'):
+                self.changed_only_checkbox.config(state='normal')
+                self.logger.info("Чекбокс 'только изменяемые' включен")
+        except Exception as e:
+            self.logger.error(f"Ошибка включения чекбокса: {e}")
+
+    def _on_changed_only_toggle(self):
+        """Обработка переключения режима 'только изменяемые'"""
+        try:
+            self.state.changed_only = self.changed_only_var.get()
+            
+            if self.state.changed_only:
+                # Отключаем диагностический режим
+                self.state.diagnostic_mode = False
+                self.mode_label.config(text="🔥", foreground="red")
+                
+                # Применяем через контроллер
+                if self.controller and hasattr(self.controller, 'apply_changed_parameters_filter'):
+                    self.controller.apply_changed_parameters_filter()
+            else:
+                self.mode_label.config(text="●", foreground="gray")
+                self._notify_state_changed()
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка переключения режима: {e}")
 
     # === ПУБЛИЧНЫЕ МЕТОДЫ ===
 

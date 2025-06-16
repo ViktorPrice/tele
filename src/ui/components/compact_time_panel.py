@@ -269,6 +269,36 @@ class CompactTimePanel(ttk.Frame):
             else:
                 self.controller.apply_filters(changed_only=is_enabled)
 
+    def on_changed_only_toggled(self):
+        """ИСПРАВЛЕННЫЙ обработчик переключения чекбокса 'только изменяемые'"""
+        try:
+            is_enabled = self.changed_only_var.get()
+            self.logger.info(f"🔄 Чекбокс 'только изменяемые' переключен: {is_enabled}")
+            
+            # Синхронизируем с SmartFilterPanel
+            if self.controller:
+                filter_panel = self.controller.get_ui_component('filter_panel')
+                if filter_panel:
+                    if hasattr(filter_panel, 'set_changed_only_mode'):
+                        filter_panel.set_changed_only_mode(is_enabled)
+                    elif hasattr(filter_panel, 'sync_changed_only_state'):
+                        filter_panel.sync_changed_only_state(is_enabled)
+            
+            # Если чекбокс включен, применяем фильтр изменяемых немедленно
+            if is_enabled and self.controller:
+                self.controller.apply_changed_parameters_filter(auto_recalc=False)
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обработки переключения 'только изменяемые': {e}")
+
+    def is_changed_only_enabled(self) -> bool:
+        """НОВЫЙ МЕТОД: Проверка состояния чекбокса 'только изменяемые'"""
+        try:
+            return self.changed_only_var.get() if hasattr(self, 'changed_only_var') else False
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка проверки состояния 'только изменяемые': {e}")
+            return False
+
     def _on_time_field_changed(self, event=None):
         """Обработка изменения полей времени"""
         try:

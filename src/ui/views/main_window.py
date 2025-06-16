@@ -30,6 +30,12 @@ class MainWindow:
         # Информационная панель в заголовке
         self.info_panel = None
 
+        # Текущие значения МЦД для сохранения состояния
+        self._current_line_mcd = ""
+        self._current_route = ""
+        self._current_train = ""
+        self._current_leading_unit = ""
+
         # Кэш для оптимизации
         self._ui_state_cache = {}
         self._last_update_time = 0
@@ -120,6 +126,12 @@ class MainWindow:
         """Обновление основной информации в компактном формате с данными телеметрии"""
         try:
             self.logger.info(f"🔄 update_telemetry_info вызван: файл={file_name}, МЦД={line_mcd}, маршрут={route}, состав={train}, вагон={leading_unit}")
+
+            # Сохраняем текущие значения МЦД для последующего использования
+            self._current_line_mcd = line_mcd
+            self._current_route = route
+            self._current_train = train
+            self._current_leading_unit = leading_unit
             
             if self.main_info_label:
                 # Компактный формат с основной информацией о телеметрии
@@ -737,7 +749,16 @@ class MainWindow:
                 
                 # Сбрасываем информацию о файле и заголовке
                 self.update_file_info()
-                self.update_telemetry_info()
+                # Передаем текущие сохраненные значения МЦД, чтобы не затирать их
+                self.update_telemetry_info(
+                    file_name="",
+                    params_count=0,
+                    selected_count=0,
+                    line_mcd=self._current_line_mcd,
+                    route=self._current_route,
+                    train=self._current_train,
+                    leading_unit=self._current_leading_unit
+                )
                 self.update_additional_info("Интерфейс очищен. Готов к загрузке новых данных")
                 
                 self.update_status("Интерфейс очищен")
