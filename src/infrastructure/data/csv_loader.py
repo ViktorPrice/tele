@@ -42,24 +42,26 @@ class CSVDataLoader:
         self.start_time = None
         self.end_time = None
         self.data = None
-        
+
         # НОВЫЕ атрибуты для интеграции с исправленными компонентами
         self.min_timestamp = None
         self.max_timestamp = None
         self.records_count = 0
-        
+
         # Кэш для производительности
         self._encoding_cache = {}
         self._structure_cache = {}
-        
+
         # Статистика загрузки
         self._load_statistics = {}
 
-        self.logger.info("CSVDataLoader инициализирован с приоритетной поддержкой")
+        self.logger.info(
+            "CSVDataLoader инициализирован с приоритетной поддержкой")
 
     def get_parameters(self) -> list:
         """Возвращает текущий список параметров"""
-        self.logger.debug(f"get_parameters вызван, возвращается {len(self.parameters)} параметров")
+        self.logger.debug(
+            f"get_parameters вызван, возвращается {len(self.parameters)} параметров")
         return self.parameters
 
     def get_controlling_wagon(self) -> int:
@@ -67,13 +69,15 @@ class CSVDataLoader:
         try:
             # КРИТИЧЕСКАЯ ПРОВЕРКА: наличие данных
             if self.data is None:
-                self.logger.debug("Данные не загружены, используется вагон по умолчанию")
+                self.logger.debug(
+                    "Данные не загружены, используется вагон по умолчанию")
                 return 1
 
             # КРИТИЧЕСКАЯ ПРОВЕРКА: наличие столбца
             if 'DW_CURRENT_ID_WAGON' not in self.data.columns:
-                self.logger.debug("Столбец DW_CURRENT_ID_WAGON не найден, ищем альтернативные столбцы")
-                
+                self.logger.debug(
+                    "Столбец DW_CURRENT_ID_WAGON не найден, ищем альтернативные столбцы")
+
                 # Поиск альтернативных столбцов для определения ведущего вагона
                 alternative_columns = [
                     'CURRENT_ID_WAGON',
@@ -82,24 +86,28 @@ class CSVDataLoader:
                     'CONTROLLING_WAGON',
                     'LEAD_WAGON'
                 ]
-                
+
                 found_column = None
                 for alt_col in alternative_columns:
                     if alt_col in self.data.columns:
                         found_column = alt_col
-                        self.logger.info(f"Найден альтернативный столбец для ведущего вагона: {alt_col}")
+                        self.logger.info(
+                            f"Найден альтернативный столбец для ведущего вагона: {alt_col}")
                         break
-                
+
                 if not found_column:
                     # Пытаемся найти столбец по паттерну
-                    wagon_columns = [col for col in self.data.columns if 'WAGON' in col.upper()]
+                    wagon_columns = [
+                        col for col in self.data.columns if 'WAGON' in col.upper()]
                     if wagon_columns:
                         found_column = wagon_columns[0]
-                        self.logger.info(f"Найден столбец по паттерну WAGON: {found_column}")
+                        self.logger.info(
+                            f"Найден столбец по паттерну WAGON: {found_column}")
                     else:
-                        self.logger.info("Столбцы с информацией о вагоне не найдены, используется вагон по умолчанию")
+                        self.logger.info(
+                            "Столбцы с информацией о вагоне не найдены, используется вагон по умолчанию")
                         return 1
-                
+
                 # Используем найденный альтернативный столбец
                 column_to_use = found_column
             else:
@@ -107,9 +115,10 @@ class CSVDataLoader:
 
             # БЕЗОПАСНОЕ извлечение значения
             wagon_series = self.data[column_to_use].dropna()
-            
+
             if len(wagon_series) == 0:
-                self.logger.info(f"Столбец {column_to_use} не содержит данных, используется вагон по умолчанию")
+                self.logger.info(
+                    f"Столбец {column_to_use} не содержит данных, используется вагон по умолчанию")
                 return 1
 
             # Берем последнее значение столбца
@@ -117,14 +126,16 @@ class CSVDataLoader:
 
             # УЛУЧШЕННАЯ обработка номера вагона
             wagon_num = self._extract_wagon_number_from_value(last_value)
-            
+
             if wagon_num is None:
-                self.logger.warning(f"Не удалось извлечь номер вагона из значения: {last_value}")
+                self.logger.warning(
+                    f"Не удалось извлечь номер вагона из значения: {last_value}")
                 return 1
 
             # Валидация номера вагона
             if not (1 <= wagon_num <= 16):
-                self.logger.warning(f"Номер вагона {wagon_num} вне допустимого диапазона [1-16], используется 1")
+                self.logger.warning(
+                    f"Номер вагона {wagon_num} вне допустимого диапазона [1-16], используется 1")
                 wagon_num = 1
 
             # Обновляем карту вагонов в зависимости от номера
@@ -143,7 +154,7 @@ class CSVDataLoader:
         try:
             # Преобразуем в строку
             value_str = str(value).strip()
-            
+
             # Если это уже число в допустимом диапазоне
             try:
                 direct_num = int(float(value_str))
@@ -151,7 +162,7 @@ class CSVDataLoader:
                     return direct_num
             except (ValueError, OverflowError):
                 pass
-            
+
             # Если это длинное число, берем последние 2 цифры
             if len(value_str) >= 2 and value_str.isdigit():
                 last_two_digits = value_str[-2:]
@@ -161,26 +172,29 @@ class CSVDataLoader:
                         return wagon_num
                 except ValueError:
                     pass
-            
+
             # Поиск числа в строке с помощью регулярных выражений
             number_matches = re.findall(r'\d+', value_str)
-            for match in reversed(number_matches):  # Начинаем с последнего найденного числа
+            # Начинаем с последнего найденного числа
+            for match in reversed(number_matches):
                 try:
                     num = int(match)
                     if 1 <= num <= 16:
                         return num
                     # Если число больше 16, берем последние цифры
                     if num > 16:
-                        last_digits = int(str(num)[-2:]) if len(str(num)) >= 2 else int(str(num)[-1:])
+                        last_digits = int(
+                            str(num)[-2:]) if len(str(num)) >= 2 else int(str(num)[-1:])
                         if 1 <= last_digits <= 16:
                             return last_digits
                 except ValueError:
                     continue
-            
+
             return None
-            
+
         except Exception as e:
-            self.logger.error(f"Ошибка извлечения номера вагона из значения {value}: {e}")
+            self.logger.error(
+                f"Ошибка извлечения номера вагона из значения {value}: {e}")
             return None
 
     def _update_wagon_map_based_on_controlling_wagon(self, wagon_num: int):
@@ -191,20 +205,23 @@ class CSVDataLoader:
                     1: "1г", 2: "11бо", 3: "2м", 4: "3нм", 5: "6м",
                     6: "8м", 7: "7нм", 8: "12м", 9: "13бо", 10: "10м", 11: "9г"
                 }
-                self.logger.info("Применена карта вагонов для ведущего вагона 1")
+                self.logger.info(
+                    "Применена карта вагонов для ведущего вагона 1")
             elif wagon_num == 9:
                 new_map = {
                     11: "1г", 10: "11бо", 9: "2м", 8: "3нм", 7: "6м",
                     6: "8м", 5: "7нм", 4: "12м", 3: "13бо", 2: "10м", 1: "9г"
                 }
-                self.logger.info("Применена карта вагонов для ведущего вагона 9")
+                self.logger.info(
+                    "Применена карта вагонов для ведущего вагона 9")
             else:
                 # Для других вагонов используем карту по умолчанию
                 new_map = self.wagon_config.get_wagon_number_map()
-                self.logger.info(f"Применена карта вагонов по умолчанию для ведущего вагона {wagon_num}")
+                self.logger.info(
+                    f"Применена карта вагонов по умолчанию для ведущего вагона {wagon_num}")
 
             self.wagon_config.update_wagon_map(new_map)
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка обновления карты вагонов: {e}")
 
@@ -213,104 +230,122 @@ class CSVDataLoader:
         try:
             if not file_path:
                 return None
-                
+
             # Проверяем, что данные загружены
             if self.data is None or self.data.empty:
-                self.logger.warning("Данные не загружены, невозможно извлечь информацию о МЦД")
+                self.logger.warning(
+                    "Данные не загружены, невозможно извлечь информацию о МЦД")
                 return None
-            
+
             mcd_info = {
                 'line_mcd': '',
                 'route': '',
                 'train': '',
                 'leading_unit': ''
             }
-            
+
             # Извлекаем информацию из DW_CURRENT_ID_WAGON
             wagon_col = None
             for col in self.data.columns:
                 if col.startswith('DW_CURRENT_ID_WAGON'):
                     wagon_col = col
-                    self.logger.info(f"Найден столбец для ведущего вагона: {col}")
+                    self.logger.info(
+                        f"Найден столбец для ведущего вагона: {col}")
                     break
-            
+
             if wagon_col:
                 wagon_series = self.data[wagon_col].dropna()
-                
+
                 if len(wagon_series) > 0:
                     # Берем последнее значение
                     wagon_value = str(wagon_series.iloc[-1]).strip()
-                    
-                    if len(wagon_value) >= 5:  # Минимум 5 цифр (4 цифры типа + 3 цифры состава + 2 цифры вагона)
+
+                    # Минимум 5 цифр (4 цифры типа + 3 цифры состава + 2 цифры вагона)
+                    if len(wagon_value) >= 5:
                         try:
                             # Последние 2 цифры - номер ведущего вагона
                             leading_unit = wagon_value[-2:]
                             mcd_info['leading_unit'] = leading_unit
-                            
+
                             # 3 цифры перед номером вагона - номер состава
                             if len(wagon_value) >= 5:
                                 train_num = wagon_value[-5:-2]
                                 mcd_info['train'] = train_num
-                                
-                            self.logger.info(f"Извлечено из {wagon_col}: состав={train_num}, ведущий вагон={leading_unit}")
-                            
+
+                            self.logger.info(
+                                f"Извлечено из {wagon_col}: состав={train_num}, ведущий вагон={leading_unit}")
+
                         except Exception as e:
-                            self.logger.error(f"Ошибка парсинга {wagon_col}: {e}")
+                            self.logger.error(
+                                f"Ошибка парсинга {wagon_col}: {e}")
                 else:
-                    self.logger.warning(f"Столбец {wagon_col} пуст, невозможно извлечь информацию о МЦД")
-                    self.logger.warning("Не удалось извлечь информацию о МЦД ни из данных, ни из имени файла")
+                    self.logger.warning(
+                        f"Столбец {wagon_col} пуст, невозможно извлечь информацию о МЦД")
+                    self.logger.warning(
+                        "Не удалось извлечь информацию о МЦД ни из данных, ни из имени файла")
                     return None
             else:
-                self.logger.warning("Столбец DW_CURRENT_ID_WAGON отсутствует, невозможно извлечь информацию о МЦД")
-                self.logger.warning("Не удалось извлечь информацию о МЦД ни из данных, ни из имени файла")
+                self.logger.warning(
+                    "Столбец DW_CURRENT_ID_WAGON отсутствует, невозможно извлечь информацию о МЦД")
+                self.logger.warning(
+                    "Не удалось извлечь информацию о МЦД ни из данных, ни из имени файла")
                 return None
-            
+
             # Извлекаем информацию из W_BUIK_TRAIN_NUM
             train_col = None
             for col in self.data.columns:
                 if col.startswith('W_BUIK_TRAIN_NUM'):
                     train_col = col
-                    self.logger.info(f"Найден столбец для номера маршрута: {col}")
+                    self.logger.info(
+                        f"Найден столбец для номера маршрута: {col}")
                     break
-            
+
             if train_col:
                 train_num_series = self.data[train_col].dropna()
-                
+
                 if len(train_num_series) > 0:
                     # Берем последнее значение
                     train_num_value = str(train_num_series.iloc[-1]).strip()
-                    
+
                     if len(train_num_value) >= 5:  # Минимум 5 цифр (1 цифра линии + 4 цифры маршрута)
                         try:
                             # Первая цифра - номер линии МЦД
                             line_mcd = train_num_value[0]
                             mcd_info['line_mcd'] = line_mcd
-                            
+
                             # Четыре последующие цифры - номер маршрута
                             route = train_num_value[1:5]
                             mcd_info['route'] = route
-                            
-                            self.logger.info(f"Извлечено из {train_col}: линия МЦД={line_mcd}, маршрут={route}")
-                            
+
+                            self.logger.info(
+                                f"Извлечено из {train_col}: линия МЦД={line_mcd}, маршрут={route}")
+
                         except Exception as e:
-                            self.logger.error(f"Ошибка парсинга {train_col}: {e}")
+                            self.logger.error(
+                                f"Ошибка парсинга {train_col}: {e}")
                 else:
-                    self.logger.warning(f"Столбец {train_col} пуст, невозможно извлечь информацию о МЦД")
-                    self.logger.warning("Не удалось извлечь информацию о МЦД ни из данных, ни из имени файла")
+                    self.logger.warning(
+                        f"Столбец {train_col} пуст, невозможно извлечь информацию о МЦД")
+                    self.logger.warning(
+                        "Не удалось извлечь информацию о МЦД ни из данных, ни из имени файла")
                     return None
             else:
-                self.logger.warning("Столбец W_BUIK_TRAIN_NUM отсутствует, невозможно извлечь информацию о МЦД")
-                self.logger.warning("Не удалось извлечь информацию о МЦД ни из данных, ни из имени файла")
+                self.logger.warning(
+                    "Столбец W_BUIK_TRAIN_NUM отсутствует, невозможно извлечь информацию о МЦД")
+                self.logger.warning(
+                    "Не удалось извлечь информацию о МЦД ни из данных, ни из имени файла")
                 return None
-            
+
             # Проверяем, что хотя бы что-то извлечено
             if any(mcd_info.values()):
-                self.logger.info(f"Успешно извлечена информация МЦД: {mcd_info}")
+                self.logger.info(
+                    f"Успешно извлечена информация МЦД: {mcd_info}")
                 return mcd_info
             else:
-                self.logger.warning("Не удалось извлечь информацию о МЦД ни из данных, ни из имени файла")
+                self.logger.warning(
+                    "Не удалось извлечь информацию о МЦД ни из данных, ни из имени файла")
                 return None
-                
+
         except Exception as e:
             self.logger.error(f"Ошибка извлечения информации о МЦД: {e}")
             return None
@@ -323,19 +358,19 @@ class CSVDataLoader:
             'train': '',
             'leading_unit': ''
         }
-        
+
         try:
             # Альтернативные названия столбцов для поиска
             wagon_alternatives = [
-                'CURRENT_ID_WAGON', 'ID_WAGON', 'WAGON_ID', 
+                'CURRENT_ID_WAGON', 'ID_WAGON', 'WAGON_ID',
                 'CONTROLLING_WAGON', 'LEAD_WAGON'
             ]
-            
+
             train_alternatives = [
                 'TRAIN_NUM', 'BUIK_TRAIN_NUM', 'TRAIN_NUMBER',
                 'ROUTE_NUM', 'ROUTE_NUMBER'
             ]
-            
+
             # Поиск альтернативных столбцов для вагона
             for alt_col in wagon_alternatives:
                 if alt_col in self.data.columns:
@@ -347,7 +382,7 @@ class CSVDataLoader:
                             if len(value) >= 5:
                                 mcd_info['train'] = value[-5:-2]
                             break
-            
+
             # Поиск альтернативных столбцов для маршрута
             for alt_col in train_alternatives:
                 if alt_col in self.data.columns:
@@ -358,9 +393,9 @@ class CSVDataLoader:
                             mcd_info['line_mcd'] = value[0]
                             mcd_info['route'] = value[1:5]
                             break
-            
+
             return mcd_info
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка поиска в альтернативных столбцах: {e}")
             return mcd_info
@@ -373,44 +408,47 @@ class CSVDataLoader:
             'train': '',
             'leading_unit': ''
         }
-        
+
         try:
             from pathlib import Path
             import re
-            
+
             file_name = Path(file_path).stem
-            
+
             # МЦД линия
             mcd_match = re.search(r'MCD[_-]?(\d+)', file_name, re.IGNORECASE)
             if mcd_match:
                 mcd_info['line_mcd'] = mcd_match.group(1)
-            
+
             # Маршрут
-            route_match = re.search(r'Route[_-]?(\w+)', file_name, re.IGNORECASE)
+            route_match = re.search(
+                r'Route[_-]?(\w+)', file_name, re.IGNORECASE)
             if route_match:
                 mcd_info['route'] = route_match.group(1)
             elif re.search(r'(\d{3,4})', file_name):
                 route_num = re.search(r'(\d{3,4})', file_name)
                 mcd_info['route'] = route_num.group(1)
-            
+
             # Состав
-            train_match = re.search(r'Train[_-]?(\w+)', file_name, re.IGNORECASE)
+            train_match = re.search(
+                r'Train[_-]?(\w+)', file_name, re.IGNORECASE)
             if train_match:
                 mcd_info['train'] = train_match.group(1)
             elif re.search(r'(\d{4,5})', file_name):
                 train_num = re.search(r'(\d{4,5})', file_name)
                 mcd_info['train'] = train_num.group(1)
-            
+
             # Ведущая голова
             unit_match = re.search(r'Unit[_-]?(\w+)', file_name, re.IGNORECASE)
             if unit_match:
                 mcd_info['leading_unit'] = unit_match.group(1)
             elif re.search(r'Head[_-]?(\w+)', file_name, re.IGNORECASE):
-                head_match = re.search(r'Head[_-]?(\w+)', file_name, re.IGNORECASE)
+                head_match = re.search(
+                    r'Head[_-]?(\w+)', file_name, re.IGNORECASE)
                 mcd_info['leading_unit'] = head_match.group(1)
-            
+
             return mcd_info
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка извлечения из имени файла: {e}")
             return mcd_info
@@ -426,22 +464,22 @@ class CSVDataLoader:
                 'leading_wagon': None,
                 'data_sources': []
             }
-            
+
             # Проверяем наличие ключевых столбцов
             if self.data is not None:
                 if 'DW_CURRENT_ID_WAGON' in self.data.columns:
                     summary['data_sources'].append('DW_CURRENT_ID_WAGON')
                     summary['has_mcd_data'] = True
-                    
+
                 if 'W_BUIK_TRAIN_NUM' in self.data.columns:
                     summary['data_sources'].append('W_BUIK_TRAIN_NUM')
                     summary['has_mcd_data'] = True
-            
+
             return summary
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка получения сводки МЦД: {e}")
-            return {'has_mcd_data': False, 'error': str(e)}    
+            return {'has_mcd_data': False, 'error': str(e)}
 
     def _detect_encoding(self, file_path: str) -> str:
         """УЛУЧШЕННОЕ автоопределение кодировки файла с кэшированием"""
@@ -459,7 +497,8 @@ class CSVDataLoader:
             encoding = detected.get('encoding', 'utf-8')
             confidence = detected.get('confidence', 0)
 
-            self.logger.info(f"Обнаружена кодировка: {encoding} (уверенность: {confidence:.2f})")
+            self.logger.info(
+                f"Обнаружена кодировка: {encoding} (уверенность: {confidence:.2f})")
 
             # РАСШИРЕННЫЙ приоритетный список кодировок для fallback
             fallback_encodings = [
@@ -480,19 +519,22 @@ class CSVDataLoader:
                         with open(file_path, 'r', encoding=test_encoding) as f:
                             # Пытаемся прочитать первые 1000 символов
                             test_content = f.read(1000)
-                            
-                        self.logger.info(f"Успешно использована кодировка: {test_encoding}")
-                        
+
+                        self.logger.info(
+                            f"Успешно использована кодировка: {test_encoding}")
+
                         # Кэшируем результат
                         self._encoding_cache[file_path] = test_encoding
                         return test_encoding
 
                     except (UnicodeDecodeError, UnicodeError):
-                        self.logger.debug(f"Кодировка {test_encoding} не подошла")
+                        self.logger.debug(
+                            f"Кодировка {test_encoding} не подошла")
                         continue
 
             # Последний резерв - ошибки игнорируем
-            self.logger.warning("Использована кодировка utf-8 с игнорированием ошибок")
+            self.logger.warning(
+                "Использована кодировка utf-8 с игнорированием ошибок")
             fallback_encoding = 'utf-8'
             self._encoding_cache[file_path] = fallback_encoding
             return fallback_encoding
@@ -536,7 +578,7 @@ class CSVDataLoader:
     def load_csv(self, file_path: str) -> Optional[TelemetryData]:
         """ПРИОРИТЕТНАЯ загрузка CSV с интеграцией в исправленную архитектуру"""
         start_time = time.time()
-        
+
         try:
             self.logger.info(f"ПРИОРИТЕТНАЯ загрузка CSV: {file_path}")
 
@@ -547,7 +589,8 @@ class CSVDataLoader:
             encoding = self._detect_encoding(file_path)
 
             # КРИТИЧНО: Предварительный анализ структуры файла
-            header_row, metadata = self._analyze_csv_structure_enhanced(file_path, encoding)
+            header_row, metadata = self._analyze_csv_structure_enhanced(
+                file_path, encoding)
 
             # Загружаем данные с правильными параметрами
             df = self._load_csv_data_enhanced(file_path, encoding, header_row)
@@ -560,22 +603,26 @@ class CSVDataLoader:
             df = self._preprocess_csv_data_enhanced(df)
 
             # КРИТИЧНО: Создание TelemetryData с правильными метаданными
-            telemetry_data = self._create_telemetry_data_enhanced(df, file_path, metadata)
+            telemetry_data = self._create_telemetry_data_enhanced(
+                df, file_path, metadata)
 
             # ПРИОРИТЕТНОЕ обновление атрибутов для интеграции
             self._update_integration_attributes(telemetry_data)
 
             # Сбор статистики
             load_time = time.time() - start_time
-            self._collect_load_statistics_enhanced(file_path, load_time, df, metadata)
+            self._collect_load_statistics_enhanced(
+                file_path, load_time, df, metadata)
 
-            self.logger.info(f"ПРИОРИТЕТНАЯ загрузка завершена за {load_time:.2f}с: {len(df)} строк, {len(df.columns)} столбцов")
+            self.logger.info(
+                f"ПРИОРИТЕТНАЯ загрузка завершена за {load_time:.2f}с: {len(df)} строк, {len(df.columns)} столбцов")
 
             return telemetry_data
 
         except Exception as e:
             load_time = time.time() - start_time
-            self.logger.error(f"Ошибка приоритетной загрузки CSV {file_path}: {e} (время: {load_time:.2f}с)")
+            self.logger.error(
+                f"Ошибка приоритетной загрузки CSV {file_path}: {e} (время: {load_time:.2f}с)")
             return None
 
     def _clear_previous_data(self):
@@ -618,24 +665,27 @@ class CSVDataLoader:
                 # КРИТИЧНО: Расширенный поиск строки с заголовками
                 header_indicators = [
                     'TIMESTAMP_YEAR',
-                    'TIMESTAMP_MONTH', 
+                    'TIMESTAMP_MONTH',
                     'TIMESTAMP_DAY',
                     'TIMESTAMP_HOUR',
                     'TIMESTAMP_MINUTE',
                     'TIMESTAMP_SECOND'
                 ]
-                
+
                 if any(indicator in line for indicator in header_indicators) or line.count('::') > 10:
                     header_row = i
-                    self.logger.info(f"Найдены реальные заголовки на строке {i}")
+                    self.logger.info(
+                        f"Найдены реальные заголовки на строке {i}")
                     break
 
                 # Дополнительная проверка на строки с большим количеством разделителей
                 if line.count(';') > 20 and i < 50:  # Много столбцов
-                    if not any(char.isalpha() for char in line.split(';')[0]):  # Первый столбец не содержит букв
+                    # Первый столбец не содержит букв
+                    if not any(char.isalpha() for char in line.split(';')[0]):
                         continue  # Это данные, не заголовки
                     header_row = i
-                    self.logger.info(f"Найдены заголовки по количеству разделителей на строке {i}")
+                    self.logger.info(
+                        f"Найдены заголовки по количеству разделителей на строке {i}")
                     break
 
             # КРИТИЧНО: Обрабатываем специальные метаданные
@@ -644,7 +694,7 @@ class CSVDataLoader:
             # Кэшируем результат
             result = (header_row, metadata)
             self._structure_cache[cache_key] = result
-            
+
             return result
 
         except Exception as e:
@@ -659,7 +709,8 @@ class CSVDataLoader:
                 trigger_date = metadata['Triggering date'].strip()
                 trigger_time = metadata['Triggering time'].strip()
                 metadata['real_timestamp'] = f"{trigger_date} {trigger_time}"
-                self.logger.info(f"Найдено реальное время: {metadata['real_timestamp']}")
+                self.logger.info(
+                    f"Найдено реальное время: {metadata['real_timestamp']}")
 
             # Обработка периода дискретизации
             if 'Sampling period' in metadata:
@@ -668,10 +719,13 @@ class CSVDataLoader:
                     # Извлекаем числовое значение
                     sampling_match = re.search(r'(\d+)', sampling_str)
                     if sampling_match:
-                        metadata['sampling_period_ms'] = int(sampling_match.group(1))
-                        self.logger.info(f"Период дискретизации: {metadata['sampling_period_ms']} мс")
+                        metadata['sampling_period_ms'] = int(
+                            sampling_match.group(1))
+                        self.logger.info(
+                            f"Период дискретизации: {metadata['sampling_period_ms']} мс")
                 except Exception as e:
-                    self.logger.warning(f"Ошибка обработки периода дискретизации: {e}")
+                    self.logger.warning(
+                        f"Ошибка обработки периода дискретизации: {e}")
 
             # Обработка информации о поезде
             if 'Vehicle number' in metadata:
@@ -700,7 +754,8 @@ class CSVDataLoader:
                     'skiprows': header_row,
                     'header': 0
                 })
-                self.logger.info(f"Загрузка с заголовками на строке {header_row}")
+                self.logger.info(
+                    f"Загрузка с заголовками на строке {header_row}")
             else:
                 self.logger.info("Загрузка без пропуска строк")
 
@@ -710,7 +765,8 @@ class CSVDataLoader:
                 self.logger.error("Загруженный DataFrame пуст")
                 return None
 
-            self.logger.info(f"Первичная загрузка: {len(df)} строк, {len(df.columns)} столбцов")
+            self.logger.info(
+                f"Первичная загрузка: {len(df)} строк, {len(df.columns)} столбцов")
             return df
 
         except Exception as e:
@@ -721,7 +777,7 @@ class CSVDataLoader:
         """РАСШИРЕННАЯ предобработка данных"""
         try:
             original_shape = df.shape
-            
+
             # Удаляем полностью пустые строки и столбцы
             df = df.dropna(how='all').dropna(axis=1, how='all')
 
@@ -733,18 +789,20 @@ class CSVDataLoader:
                 'Date:', 'Case:', 'Vehicle number:', 'Sampling period:',
                 'Triggering date:', 'Triggering time:', 'Comment:'
             ]
-            
+
             for pattern in metadata_patterns:
                 if len(df) > 0 and len(df.columns) > 0:
                     # Проверяем первый столбец
-                    mask = df.iloc[:, 0].astype(str).str.contains(pattern, na=False, case=False)
+                    mask = df.iloc[:, 0].astype(str).str.contains(
+                        pattern, na=False, case=False)
                     df = df[~mask]
 
             # Удаляем строки где первый столбец содержит только текст (не числа)
             if len(df) > 0 and len(df.columns) > 0:
                 first_col = df.iloc[:, 0]
                 # Оставляем только строки где первый столбец может быть преобразован в число
-                numeric_mask = pd.to_numeric(first_col, errors='coerce').notna()
+                numeric_mask = pd.to_numeric(
+                    first_col, errors='coerce').notna()
                 df = df[numeric_mask]
 
             # ПРИОРИТЕТНАЯ конвертация числовых столбцов
@@ -754,12 +812,14 @@ class CSVDataLoader:
                     try:
                         df[col] = pd.to_numeric(df[col])
                     except Exception as e:
-                        self.logger.warning(f"Не удалось конвертировать столбец {col} в числовой тип: {e}")
+                        self.logger.warning(
+                            f"Не удалось конвертировать столбец {col} в числовой тип: {e}")
 
             # Сброс индекса после фильтрации
             df = df.reset_index(drop=True)
 
-            self.logger.info(f"Предобработка завершена: {original_shape} -> {df.shape}")
+            self.logger.info(
+                f"Предобработка завершена: {original_shape} -> {df.shape}")
             return df
 
         except Exception as e:
@@ -770,7 +830,8 @@ class CSVDataLoader:
         """ИСПРАВЛЕНО: Создание TelemetryData без присвоения records_count"""
         try:
             # КРИТИЧНО: Определяем временной диапазон из реальных данных
-            timestamp_range = self._calculate_timestamp_range_enhanced(df, metadata)
+            timestamp_range = self._calculate_timestamp_range_enhanced(
+                df, metadata)
 
             # Создаем TelemetryData если класс доступен
             if TelemetryData:
@@ -780,11 +841,11 @@ class CSVDataLoader:
                     timestamp_range=timestamp_range,
                     source_file=file_path
                 )
-                
+
                 # ИСПРАВЛЕНО: Убираем присвоение records_count (это property без сеттера)
                 # telemetry_data.records_count = len(df)  # УДАЛЕНО
                 telemetry_data.columns_count = len(df.columns)
-                
+
                 return telemetry_data
             else:
                 # Fallback объект если TelemetryData недоступен
@@ -810,37 +871,44 @@ class CSVDataLoader:
             if 'real_timestamp' in metadata:
                 try:
                     base_time = pd.to_datetime(metadata['real_timestamp'])
-                    
+
                     # Получаем период дискретизации
-                    sampling_period = metadata.get('sampling_period_ms', 100)  # По умолчанию 100ms
-                    
+                    sampling_period = metadata.get(
+                        'sampling_period_ms', 100)  # По умолчанию 100ms
+
                     # Рассчитываем временной диапазон
                     duration_seconds = len(df) * sampling_period / 1000.0
                     start_time = base_time
                     end_time = base_time + timedelta(seconds=duration_seconds)
 
-                    self.logger.info(f"Использовано реальное время: {start_time} - {end_time}")
+                    self.logger.info(
+                        f"Использовано реальное время: {start_time} - {end_time}")
                     return (start_time, end_time)
 
                 except Exception as e:
-                    self.logger.error(f"Ошибка парсинга реального времени: {e}")
+                    self.logger.error(
+                        f"Ошибка парсинга реального времени: {e}")
 
             # Способ 2: Из timestamp столбцов если есть
-            timestamp_columns = [col for col in df.columns if 'TIMESTAMP' in col.upper()]
+            timestamp_columns = [
+                col for col in df.columns if 'TIMESTAMP' in col.upper()]
             if timestamp_columns:
                 try:
                     # Пытаемся построить timestamp из компонентов
-                    timestamp_range = self._build_timestamp_from_components(df, timestamp_columns)
+                    timestamp_range = self._build_timestamp_from_components(
+                        df, timestamp_columns)
                     if timestamp_range:
                         return timestamp_range
                 except Exception as e:
-                    self.logger.warning(f"Ошибка построения timestamp из компонентов: {e}")
+                    self.logger.warning(
+                        f"Ошибка построения timestamp из компонентов: {e}")
 
             # Способ 3: Fallback к текущему времени
             end_time = datetime.now()
             start_time = end_time - timedelta(seconds=len(df))
-            
-            self.logger.warning(f"Использовано fallback время: {start_time} - {end_time}")
+
+            self.logger.warning(
+                f"Использовано fallback время: {start_time} - {end_time}")
             return (start_time, end_time)
 
         except Exception as e:
@@ -897,11 +965,13 @@ class CSVDataLoader:
                 second=int(last_row[components['second']])
             )
 
-            self.logger.info(f"Построен timestamp из компонентов: {start_time} - {end_time}")
+            self.logger.info(
+                f"Построен timestamp из компонентов: {start_time} - {end_time}")
             return (start_time, end_time)
 
         except Exception as e:
-            self.logger.error(f"Ошибка построения timestamp из компонентов: {e}")
+            self.logger.error(
+                f"Ошибка построения timestamp из компонентов: {e}")
             return None
 
     def _update_integration_attributes(self, telemetry_data):
@@ -915,16 +985,20 @@ class CSVDataLoader:
             if telemetry_data.timestamp_range:
                 self.start_time = telemetry_data.timestamp_range[0]
                 self.end_time = telemetry_data.timestamp_range[1]
-                
+
                 # КРИТИЧНО: Форматируем для интеграции с main_controller.py
-                self.min_timestamp = self.start_time.strftime('%Y-%m-%d %H:%M:%S')
-                self.max_timestamp = self.end_time.strftime('%Y-%m-%d %H:%M:%S')
+                self.min_timestamp = self.start_time.strftime(
+                    '%Y-%m-%d %H:%M:%S')
+                self.max_timestamp = self.end_time.strftime(
+                    '%Y-%m-%d %H:%M:%S')
 
             # ПРИОРИТЕТНОЕ извлечение параметров для изменяемых параметров
-            self.parameters = self._extract_parameters_enhanced(telemetry_data.data)
+            self.parameters = self._extract_parameters_enhanced(
+                telemetry_data.data)
             self.lines = self._extract_lines_enhanced(self.parameters)
 
-            self.logger.info(f"Атрибуты интеграции обновлены: {len(self.parameters)} параметров, {len(self.lines)} линий")
+            self.logger.info(
+                f"Атрибуты интеграции обновлены: {len(self.parameters)} параметров, {len(self.lines)} линий")
 
         except Exception as e:
             self.logger.error(f"Ошибка обновления атрибутов интеграции: {e}")
@@ -943,18 +1017,19 @@ class CSVDataLoader:
                         if self.wagon_config:
                             try:
                                 skvoz_num = int(param_info.get('wagon', '1'))
-                                real_wagon = self.wagon_config.get_real_wagon_number(skvoz_num)
+                                real_wagon = self.wagon_config.get_real_wagon_number(
+                                    skvoz_num)
                                 param_info['wagon'] = real_wagon
                             except Exception as e:
-                                self.logger.warning(f"Ошибка преобразования номера вагона: {e}")
+                                self.logger.warning(
+                                    f"Ошибка преобразования номера вагона: {e}")
 
                         # ПРИОРИТЕТНАЯ проверка на изменяемость
-                        param_info['is_potentially_changed'] = self._is_potentially_changed_parameter(data[column])
+                        param_info['is_potentially_changed'] = self._is_potentially_changed_parameter(
+                            data[column])
                         parameters.append(param_info)
 
             # Логирование параметров с их line для диагностики
-            for param in parameters:
-                self.logger.info(f"Параметр: {param.get('signal_code', '')}, line: {param.get('line', '')}")
 
             self.logger.info(f"Извлечено {len(parameters)} параметров")
             return parameters
@@ -967,27 +1042,27 @@ class CSVDataLoader:
         """НОВЫЙ МЕТОД: Быстрая проверка потенциальной изменяемости параметра"""
         try:
             clean_series = series.dropna()
-            
+
             if len(clean_series) < 2:
                 return False
-            
+
             # Быстрая проверка уникальности
             unique_count = len(clean_series.unique())
             total_count = len(clean_series)
-            
+
             # Если все значения одинаковые - не изменяемый
             if unique_count == 1:
                 return False
-            
+
             # Если слишком много уникальных значений - возможно изменяемый
             if unique_count > total_count * 0.1:
                 return True
-            
+
             # Для числовых данных проверяем диапазон
             if clean_series.dtype.kind in 'biufc':
                 value_range = clean_series.max() - clean_series.min()
                 return value_range > 0
-            
+
             return unique_count > 1
 
         except Exception:
@@ -1009,17 +1084,20 @@ class CSVDataLoader:
 
                     # Если описание пустое после очистки, генерируем новое
                     if not description:
-                        description = self._generate_description_from_code_enhanced(signal_code)
+                        description = self._generate_description_from_code_enhanced(
+                            signal_code)
                 else:
                     line = metadata.strip()
-                    description = self._generate_description_from_code_enhanced(signal_code)
+                    description = self._generate_description_from_code_enhanced(
+                        signal_code)
             else:
                 # Простой формат
                 signal_code = column_name
                 parts = column_name.split('_')
                 signal_type = parts[0] if parts else 'Unknown'
                 line = self._determine_line_enhanced(signal_type)
-                description = self._generate_description_from_code_enhanced(signal_code)
+                description = self._generate_description_from_code_enhanced(
+                    signal_code)
 
             # ФИНАЛЬНАЯ очистка описания
             description = self._clean_description_enhanced(description)
@@ -1049,7 +1127,8 @@ class CSVDataLoader:
             return ""
 
         # Расширенный список артефактов
-        artifacts = ['|0', '|', '0', 'nan', 'NaN', 'None', 'null', 'NULL', '""', "''"]
+        artifacts = ['|0', '|', '0', 'nan', 'NaN',
+                     'None', 'null', 'NULL', '""', "''"]
 
         cleaned = description
         for artifact in artifacts:
@@ -1096,7 +1175,7 @@ class CSVDataLoader:
             cleaned_code = signal_code.replace('_', ' ')
             for abbr, expansion in abbreviations.items():
                 cleaned_code = cleaned_code.replace(abbr, expansion)
-            
+
             return cleaned_code.title()
 
         except Exception:
@@ -1106,7 +1185,7 @@ class CSVDataLoader:
         """РАСШИРЕННОЕ определение линии по типу сигнала"""
         line_mapping = {
             'B': 'L_CAN_BLOK_CH',
-            'BY': 'L_CAN_ICU_CH_A', 
+            'BY': 'L_CAN_ICU_CH_A',
             'W': 'L_TV_MAIN_CH_A',
             'DW': 'L_TV_MAIN_CH_B',
             'F': 'L_LCUP_CH_A',
@@ -1125,34 +1204,35 @@ class CSVDataLoader:
                     num = int(part)
                     if 1 <= num <= 16:  # Расширили диапазон
                         return str(num)
-            
+
             # Дополнительная проверка для других форматов
             wagon_match = re.search(r'[Ww](\d+)', signal_code)
             if wagon_match:
                 return wagon_match.group(1)
-                
+
             return '1'  # По умолчанию первый вагон
-            
+
         except Exception:
             return '1'
 
     def _determine_data_type(self, signal_code: str) -> str:
         """НОВЫЙ МЕТОД: Определение типа данных по коду сигнала"""
         try:
-            signal_type = signal_code.split('_')[0] if '_' in signal_code else signal_code
-            
+            signal_type = signal_code.split(
+                '_')[0] if '_' in signal_code else signal_code
+
             type_mapping = {
                 'B': 'BOOL',
-                'BY': 'BYTE', 
+                'BY': 'BYTE',
                 'W': 'WORD',
                 'DW': 'DWORD',
                 'F': 'FLOAT',
                 'WF': 'FLOAT',
                 'S': 'STRING'
             }
-            
+
             return type_mapping.get(signal_type, 'UNKNOWN')
-            
+
         except Exception:
             return 'UNKNOWN'
 
@@ -1163,30 +1243,32 @@ class CSVDataLoader:
                 'FAULT', 'ERROR', 'FAIL', 'ALARM', 'WARNING',
                 'НЕИСПРАВНОСТЬ', 'ОШИБКА', 'АВАРИЯ', 'ПРЕДУПРЕЖДЕНИЕ'
             ]
-            
+
             combined_text = f"{signal_code} {description}".upper()
             return any(indicator in combined_text for indicator in problematic_indicators)
-            
+
         except Exception:
             return False
 
     def _extract_lines_enhanced(self, parameters: List[Dict[str, Any]]) -> set:
         """РАСШИРЕННОЕ извлечение уникальных линий"""
         try:
-            lines = {param['line'] for param in parameters if param.get('line')}
-            
+            lines = {param['line']
+                     for param in parameters if param.get('line')}
+
             # Добавляем системные линии если их нет
-            default_lines = {'L_CAN_BLOK_CH', 'L_CAN_ICU_CH_A', 'L_TV_MAIN_CH_A'}
+            default_lines = {'L_CAN_BLOK_CH',
+                             'L_CAN_ICU_CH_A', 'L_TV_MAIN_CH_A'}
             lines.update(default_lines)
-            
+
             return lines
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка извлечения линий: {e}")
             return set()
 
-    def _collect_load_statistics_enhanced(self, file_path: str, load_time: float, 
-                                        df: pd.DataFrame, metadata: Dict[str, str]):
+    def _collect_load_statistics_enhanced(self, file_path: str, load_time: float,
+                                          df: pd.DataFrame, metadata: Dict[str, str]):
         """РАСШИРЕННЫЙ сбор статистики загрузки"""
         try:
             self._load_statistics = {
@@ -1203,7 +1285,7 @@ class CSVDataLoader:
                 'sampling_period_ms': metadata.get('sampling_period_ms', 'unknown'),
                 'vehicle_number': metadata.get('vehicle_number', 'unknown')
             }
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка сбора статистики загрузки: {e}")
 
@@ -1211,110 +1293,121 @@ class CSVDataLoader:
         """ИСПРАВЛЕННАЯ фильтрация изменяемых параметров с реальным анализом временного ряда"""
         try:
             if self.data is None or self.data.empty:
-                self.logger.warning("Нет данных для анализа изменяемых параметров")
+                self.logger.warning(
+                    "Нет данных для анализа изменяемых параметров")
                 return []
-            
-            self.logger.info(f"ПРИОРИТЕТНАЯ фильтрация изменяемых параметров: {start_time} - {end_time}")
-            
+
+            self.logger.info(
+                f"ПРИОРИТЕТНАЯ фильтрация изменяемых параметров: {start_time} - {end_time}")
+
             # КРИТИЧНО: Фильтруем данные по временному диапазону
             if 'timestamp' in self.data.columns:
                 # Преобразуем строки времени в datetime для корректного сравнения
                 start_dt = pd.to_datetime(start_time)
                 end_dt = pd.to_datetime(end_time)
                 data_timestamps = pd.to_datetime(self.data['timestamp'])
-                
-                mask = (data_timestamps >= start_dt) & (data_timestamps <= end_dt)
+
+                mask = (data_timestamps >= start_dt) & (
+                    data_timestamps <= end_dt)
                 filtered_data = self.data[mask]
-                
-                self.logger.info(f"Отфильтровано по времени: {len(filtered_data)} записей из {len(self.data)} (диапазон: {start_time} - {end_time})")
+
+                self.logger.info(
+                    f"Отфильтровано по времени: {len(filtered_data)} записей из {len(self.data)} (диапазон: {start_time} - {end_time})")
             else:
-                self.logger.warning("Столбец timestamp не найден, используем все данные")
+                self.logger.warning(
+                    "Столбец timestamp не найден, используем все данные")
                 filtered_data = self.data
-            
+
             if filtered_data.empty:
-                self.logger.warning(f"Нет данных в диапазоне {start_time} - {end_time}")
+                self.logger.warning(
+                    f"Нет данных в диапазоне {start_time} - {end_time}")
                 return []
-            
+
             changed_params = []
             all_params = self.get_parameters()
-            
+
             for param in all_params:
                 signal_code = param.get('signal_code', '')
-                
+
                 # Ищем столбец с данными параметра
                 param_column = None
                 for col in filtered_data.columns:
                     if signal_code in col:
                         param_column = col
                         break
-                
+
                 if param_column and param_column in filtered_data.columns:
                     # РЕАЛЬНЫЙ анализ изменяемости в указанном временном диапазоне
                     param_values = filtered_data[param_column].dropna()
-                    
+
                     if len(param_values) > 1:
                         # Проверяем, изменяются ли значения
                         unique_values = param_values.nunique()
                         total_values = len(param_values)
-                        
+
                         if unique_values > 1:
                             # Вычисляем коэффициент вариации
                             try:
                                 if param_values.dtype in ['float64', 'int64']:
                                     std_dev = param_values.std()
                                     mean_val = param_values.mean()
-                                    
+
                                     if mean_val != 0:
                                         cv = std_dev / abs(mean_val)
                                         if cv > threshold:
                                             changed_params.append(param)
-                                            self.logger.debug(f"Параметр {signal_code} изменяется (CV={cv:.3f}) в диапазоне {start_time}-{end_time}")
+                                            self.logger.debug(
+                                                f"Параметр {signal_code} изменяется (CV={cv:.3f}) в диапазоне {start_time}-{end_time}")
                                     else:
                                         # Для нулевого среднего проверяем просто наличие разных значений
                                         if std_dev > 0:
                                             changed_params.append(param)
-                                            self.logger.debug(f"Параметр {signal_code} изменяется (std={std_dev:.3f}) в диапазоне {start_time}-{end_time}")
+                                            self.logger.debug(
+                                                f"Параметр {signal_code} изменяется (std={std_dev:.3f}) в диапазоне {start_time}-{end_time}")
                                 else:
                                     # Для нечисловых данных проверяем долю уникальных значений
                                     uniqueness_ratio = unique_values / total_values
                                     if uniqueness_ratio > threshold:
                                         changed_params.append(param)
-                                        self.logger.debug(f"Параметр {signal_code} изменяется (uniqueness={uniqueness_ratio:.3f}) в диапазоне {start_time}-{end_time}")
+                                        self.logger.debug(
+                                            f"Параметр {signal_code} изменяется (uniqueness={uniqueness_ratio:.3f}) в диапазоне {start_time}-{end_time}")
                             except Exception as e:
-                                self.logger.debug(f"Ошибка анализа параметра {signal_code}: {e}")
-            
-            self.logger.info(f"Найдено {len(changed_params)} изменяемых параметров из {len(all_params)} в диапазоне {start_time} - {end_time}")
+                                self.logger.debug(
+                                    f"Ошибка анализа параметра {signal_code}: {e}")
+
+            self.logger.info(
+                f"Найдено {len(changed_params)} изменяемых параметров из {len(all_params)} в диапазоне {start_time} - {end_time}")
             return changed_params
-            
+
         except Exception as e:
             self.logger.error(f"Ошибка фильтрации изменяемых параметров: {e}")
             return []
-
 
     def _detailed_change_analysis(self, series: pd.Series, threshold: float) -> bool:
         """НОВЫЙ МЕТОД: Детальный анализ изменяемости с threshold"""
         try:
             clean_series = series.dropna()
-            
+
             if len(clean_series) < 2:
                 return False
-            
+
             # Для числовых данных
             if clean_series.dtype.kind in 'biufc':
                 # Проверяем коэффициент вариации
                 if clean_series.std() > 0:
-                    cv = clean_series.std() / abs(clean_series.mean()) if clean_series.mean() != 0 else float('inf')
+                    cv = clean_series.std() / abs(clean_series.mean()
+                                                  ) if clean_series.mean() != 0 else float('inf')
                     if cv > threshold:
                         return True
-                
+
                 # Проверяем отношение уникальных значений
                 unique_ratio = len(clean_series.unique()) / len(clean_series)
                 return unique_ratio > threshold
-            
+
             # Для категориальных данных
             unique_count = len(clean_series.unique())
             total_count = len(clean_series)
-            
+
             # Должно быть изменение, но не слишком много уникальных значений
             return 1 < unique_count < total_count * 0.8
 
