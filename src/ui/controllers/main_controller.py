@@ -36,10 +36,16 @@ except ImportError as e:
 class MainController:
     """Главный контроллер приложения без дублирований с поддержкой диагностики"""
 
+    def build_plot(self):
+        """Метод для поддержки построения графиков из HorizontalActionPanel"""
+        self.plot_selected_parameters()
+
     def __init__(self, model, view):
         self.model = model
         self.view = view
         self.logger = logging.getLogger(self.__class__.__name__)
+
+
 
         # Текущие значения МЦД для сохранения состояния
         self._current_line_mcd = ""
@@ -83,7 +89,8 @@ class MainController:
             'filters_applied': [],
             'time_changed': [],
             'changed_params_filter_applied': [],  # Приоритетный callback
-            'diagnostic_filters_applied': []      # НОВЫЙ: Диагностические фильтры
+            'diagnostic_filters_applied': [],     # НОВЫЙ: Диагностические фильтры
+            'plot_requested': []                   # НОВЫЙ: Запрос на построение графиков
         }
 
         # Инициализация
@@ -612,8 +619,6 @@ class MainController:
             if hasattr(self.view, 'show_error'):
                 self.view.show_error(f"Неверный формат времени: {e}")
             return False
-
-    # === НОВЫЕ МЕТОДЫ ДИАГНОСТИЧЕСКИХ ФИЛЬТРОВ ===
 
     def apply_diagnostic_filters(self, diagnostic_criteria: Dict[str, List[str]]):
         """Применение диагностических фильтров с использованием конфигурации"""
@@ -1407,13 +1412,8 @@ class MainController:
             # Обновляем UI
             self._update_ui_with_filtered_params(filtered_changed_params)
 
-            # Обновляем selected_parameters в parameter_panel через ui_components
-            parameter_panel = self.get_ui_component('parameter_panel')
-            if parameter_panel and hasattr(parameter_panel, 'set_selected_parameters'):
-                parameter_panel.set_selected_parameters(
-                    filtered_changed_params)
-                self.logger.info(
-                    f"✅ selected_parameters обновлены в parameter_panel: {len(filtered_changed_params)} элементов")
+            # Убираем автоматическое добавление в selected_parameters
+            # Ранее здесь был код обновления selected_parameters, он удален
 
             # Генерируем событие
             self._emit_event('changed_params_filter_applied', {
@@ -1760,51 +1760,94 @@ class MainController:
     # === МЕТОДЫ ПОСТРОЕНИЯ ГРАФИКОВ ===
 
     def plot_selected_parameters(self):
-        """Построение графиков выбранных параметров"""
+        """ОСНОВНОЙ метод построения графиков выбранных параметров"""
         try:
-            self.logger.info("Построение графиков выбранных параметров")
+            self.logger.info("🔄 plot_selected_parameters вызван")
 
+            # Проверяем наличие данных
+            if not self._has_data():
+                self._show_no_data_message()
+                return
+
+            # Получаем выбранные параметры
             selected_params = self._get_selected_parameters_unified()
             if not selected_params:
                 if hasattr(self.view, 'show_warning'):
-                    self.view.show_warning(
-                        "Выберите параметры для построения графиков")
+                    self.view.show_warning("Выберите параметры для построения графиков")
                 return
 
+            # Получаем временной диапазон
             start_time, end_time = self._get_time_range_unified()
             if not start_time or not end_time:
                 self._show_time_error()
                 return
 
+            self.logger.info(f"📊 Построение графиков для {len(selected_params)} параметров")
+
+            # Проверяем plot_manager
+            if not self.plot_manager:
+                self.logger.error("❌ PlotManager не инициализирован")
+                if hasattr(self.view, 'show_error'):
+                    self.view.show_error("PlotManager не инициализирован")
+                return
+
+            # Получаем plot_panel
+            plot_panel = self.get_ui_component('plot_panel')
+            if not plot_panel:
+                self.logger.error("❌ PlotVisualizationPanel не найден")
+                if hasattr(self.view, 'show_error'):
+                    self.view.show_error("Панель графиков не найдена")
+                return
+
             self._start_processing("Построение графиков...")
 
-            def plot_task():
-                try:
-                    success = False
-                    if self.plot_manager:
-                        success = self.plot_manager.plot_parameters(
-                            parameters=selected_params,
-                            start_time=start_time,
-                            end_time=end_time
-                        )
+            try:
+                # Преобразуем время если нужно
+                if isinstance(start_time, str):
+                    from datetime import datetime
+                    start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                else:
+                    start_dt = start_time
 
-                    if hasattr(self.view, 'root'):
-                        self.view.root.after(
-                            0, lambda: self._handle_plot_result(success))
+                if isinstance(end_time, str):
+                    from datetime import datetime
+                    end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+                else:
+                    end_dt = end_time
 
-                except Exception as e:
-                    self.logger.error(
-                        f"Ошибка в потоке построения графиков: {e}")
-                    if hasattr(self.view, 'root'):
-                        self.view.root.after(
-                            0, lambda: self._handle_plot_error(e))
+                # Вызываем построение через plot_panel
+                if hasattr(plot_panel, 'build_plots_for_parameters'):
+                    plot_panel.build_plots_for_parameters(selected_params, start_dt, end_dt)
+                    self.logger.info("✅ Графики переданы в PlotVisualizationPanel")
+                else:
+                    # Fallback через plot_manager
+                    success = self.plot_manager.plot_parameters(
+                        parameters=selected_params,
+                        start_time=start_time if isinstance(start_time, str) else start_time.strftime('%Y-%m-%d %H:%M:%S'),
+                        end_time=end_time if isinstance(end_time, str) else end_time.strftime('%Y-%m-%d %H:%M:%S')
+                    )
+                    
+                    if success:
+                        self.logger.info("✅ Графики построены через PlotManager")
+                        if hasattr(self.view, 'show_info'):
+                            self.view.show_info("Графики построены успешно")
+                    else:
+                        self.logger.error("❌ Не удалось построить графики")
+                        if hasattr(self.view, 'show_error'):
+                            self.view.show_error("Не удалось построить графики")
 
-            thread = threading.Thread(target=plot_task, daemon=True)
-            thread.start()
+            except Exception as e:
+                self.logger.error(f"❌ Ошибка построения графиков: {e}")
+                if hasattr(self.view, 'show_error'):
+                    self.view.show_error(f"Ошибка построения графиков: {e}")
+            finally:
+                self._stop_processing()
 
         except Exception as e:
-            self.logger.error(f"Ошибка построения графиков: {e}")
+            self.logger.error(f"❌ Критическая ошибка plot_selected_parameters: {e}")
             self._stop_processing()
+            if hasattr(self.view, 'show_error'):
+                self.view.show_error(f"Критическая ошибка: {e}")
 
     def _handle_plot_result(self, success: bool):
         """Обработка результата построения графиков"""
@@ -2211,10 +2254,10 @@ class MainController:
                 self.view.show_error("Ошибка", f"Ошибка обработки файла: {e}")
 
     def update_parameters(self, parameters: List[Dict[str, Any]]):
-        """Обновление списка параметров во всех панелях"""
+        """ЕДИНСТВЕННЫЙ метод обновления списка параметров во всех панелях"""
         try:
             self.logger.info(
-                f"📊 UIComponents.update_parameters вызван с {len(parameters)} параметрами")
+                f"📊 update_parameters вызван с {len(parameters)} параметрами")
 
             if not hasattr(self.view, 'ui_components') or not self.view.ui_components:
                 self.logger.error("❌ ui_components не создан!")
@@ -2226,7 +2269,7 @@ class MainController:
                 self.logger.info("✅ ui_components.update_parameters выполнен")
 
             # Генерируем событие
-            self._emit_event('parameter_updated', {'count': len(parameters)})
+            self._emit_event('parameters_updated', {'count': len(parameters)})
 
             self.logger.info(
                 f"✅ Параметры обновлены в UI: {len(parameters)} элементов")
@@ -2237,7 +2280,7 @@ class MainController:
             traceback.print_exc()
 
     def disable_changed_only_checkbox(self):
-        """Отключение чекбокса 'только изменяемые' в SmartFilterPanel"""
+        """ЕДИНСТВЕННЫЙ метод отключения чекбокса 'только изменяемые' в SmartFilterPanel"""
         try:
             filter_panel = self.get_ui_component('filter_panel')
             if filter_panel and hasattr(filter_panel, 'disable_changed_only_checkbox'):

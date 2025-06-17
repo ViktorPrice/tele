@@ -1,4 +1,3 @@
-# src/ui/components/plot_visualization_panel.py - ПОЛНАЯ РЕАЛИЗАЦИЯ
 """
 Панель визуализации графиков с интеграцией Use Cases и Clean Architecture
 """
@@ -182,6 +181,17 @@ class PlotVisualizationPanel(ttk.Frame):
         • Аннотации и измерения
         
         🚀 Начните с загрузки CSV файла!
+        Не забудте добавить в csv параметры:
+        W_BUIK_TRAIN_NUM - для автоматической подстановки маршрута и линии МЦД
+        DW_CURRENT_ID_WAGON - для определения ведущей головы и правильной расстановки вагонов
+        W_TIMESTAMP_YEAR_
+        BY_TIMESTAMP_DAY_
+        BY_TIMESTAMP_MONTH_
+        BY_TIMESTAMP_MINUTE_
+        BY_TIMESTAMP_HOUR_
+        BY_TIMESTAMP_SMALLSECOND_
+        BY_TIMESTAMP_SECOND_
+        Для отображения времени
         """
 
         info_label = tk.Label(
@@ -245,14 +255,16 @@ class PlotVisualizationPanel(ttk.Frame):
                 return
 
             if not parameters:
-                self._show_warning("Нет выбранных параметров для построения графиков")
+                self._show_warning(
+                    "Нет выбранных параметров для построения графиков")
                 return
 
             self.is_building_plots = True
             self._show_building_progress(True)
 
             # ДИАГНОСТИКА: Проверяем данные
-            self.logger.info(f"Начало построения графиков для {len(parameters)} параметров")
+            self.logger.info(
+                f"Начало построения графиков для {len(parameters)} параметров")
             self.logger.info(f"Временной диапазон: {start_time} - {end_time}")
 
             # Проверяем PlotBuilder
@@ -270,20 +282,24 @@ class PlotVisualizationPanel(ttk.Frame):
             # ДИАГНОСТИКА: Проверяем наличие данных
             has_data = self.plot_builder._has_data()
             self.logger.info(f"Проверка данных: {has_data}")
-            
+
             if not has_data:
                 # Пытаемся диагностировать проблему
                 data_loader = self.plot_builder.data_loader
                 self.logger.info(f"DataLoader тип: {type(data_loader)}")
-                self.logger.info(f"DataLoader атрибуты: {[attr for attr in dir(data_loader) if not attr.startswith('_')]}")
-                
+                self.logger.info(
+                    f"DataLoader атрибуты: {[attr for attr in dir(data_loader) if not attr.startswith('_')]}")
+
                 if hasattr(data_loader, 'data'):
-                    self.logger.info(f"data_loader.data: {type(data_loader.data)}")
+                    self.logger.info(
+                        f"data_loader.data: {type(data_loader.data)}")
                     if hasattr(data_loader.data, 'shape'):
-                        self.logger.info(f"Размер данных: {data_loader.data.shape}")
-                
+                        self.logger.info(
+                            f"Размер данных: {data_loader.data.shape}")
+
                 if hasattr(data_loader, 'parameters'):
-                    self.logger.info(f"Количество параметров: {len(data_loader.parameters) if data_loader.parameters else 0}")
+                    self.logger.info(
+                        f"Количество параметров: {len(data_loader.parameters) if data_loader.parameters else 0}")
 
             # Удаляем приветственную вкладку если есть
             self._remove_welcome_tab()
@@ -296,16 +312,20 @@ class PlotVisualizationPanel(ttk.Frame):
             success_count = 0
             for group_name, group_params in plot_groups.items():
                 try:
-                    self._create_plot_tab(group_name, group_params, start_time, end_time)
+                    self._create_plot_tab(
+                        group_name, group_params, start_time, end_time)
                     success_count += 1
                 except Exception as e:
-                    self.logger.error(f"Ошибка создания графика '{group_name}': {e}")
+                    self.logger.error(
+                        f"Ошибка создания графика '{group_name}': {e}")
                     continue
 
             if success_count > 0:
-                self.logger.info(f"Успешно создано {success_count} графиков из {len(plot_groups)}")
+                self.logger.info(
+                    f"Успешно создано {success_count} графиков из {len(plot_groups)}")
             else:
-                self._show_error("Не удалось создать ни одного графика. Проверьте данные и логи.")
+                self._show_error(
+                    "Не удалось создать ни одного графика. Проверьте данные и логи.")
 
         except Exception as e:
             self.logger.error(f"Ошибка построения графиков: {e}")
@@ -680,29 +700,33 @@ class PlotVisualizationPanel(ttk.Frame):
             # Основной способ: через контроллер
             if self.controller and hasattr(self.controller, 'get_selected_parameters'):
                 selected = self.controller.get_selected_parameters()
-                self.logger.debug(f"Получено параметров через контроллер: {len(selected)}")
+                self.logger.debug(
+                    f"Получено параметров через контроллер: {len(selected)}")
                 return selected
-            
+
             # Fallback: прямой доступ к UI компонентам
             if self.controller and hasattr(self.controller, 'view'):
                 view = self.controller.view
-                
+
                 # Через ui_components
-                if (hasattr(view, 'ui_components') and 
-                    view.ui_components and 
-                    hasattr(view.ui_components, 'parameter_panel')):
-                    
+                if (hasattr(view, 'ui_components') and
+                    view.ui_components and
+                        hasattr(view.ui_components, 'parameter_panel')):
+
                     parameter_panel = view.ui_components.parameter_panel
                     if hasattr(parameter_panel, 'get_selected_parameters'):
                         selected = parameter_panel.get_selected_parameters()
-                        self.logger.debug(f"Получено параметров через fallback: {len(selected)}")
+                        self.logger.debug(
+                            f"Получено параметров через fallback: {len(selected)}")
                         return selected
-            
-            self.logger.warning("Контроллер недоступен или не имеет нужных методов")
+
+            self.logger.warning(
+                "Контроллер недоступен или не имеет нужных методов")
             return []
-            
+
         except Exception as e:
-            self.logger.error(f"Ошибка получения параметров в PlotVisualizationPanel: {e}")
+            self.logger.error(
+                f"Ошибка получения параметров в PlotVisualizationPanel: {e}")
             return []
 
     def _get_time_range(self) -> Tuple[Optional[datetime], Optional[datetime]]:
