@@ -623,6 +623,32 @@ class PlotVisualizationPanel(ttk.Frame):
         except Exception as e:
             self.logger.error(f"Ошибка экспорта текущего графика: {e}")
             self._show_error(f"Ошибка экспорта: {str(e)}")
+
+    def _export_all_plots(self):
+        """Экспорт всех графиков"""
+        try:
+            from tkinter import filedialog
+
+            directory = filedialog.askdirectory(
+                title="Выберите папку для экспорта всех графиков"
+            )
+            if not directory:
+                return
+
+            for tab_name, tab_info in self.plot_tabs.items():
+                try:
+                    filename = f"{tab_name}.png"
+                    filepath = f"{directory}/{filename}"
+                    tab_info["figure"].savefig(filepath, dpi=300, bbox_inches="tight")
+                    self.logger.info(f"График '{tab_name}' экспортирован в {filepath}")
+                except Exception as e:
+                    self.logger.error(f"Ошибка экспорта графика '{tab_name}': {e}")
+
+            self._show_info(f"Все графики экспортированы в папку: {directory}")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка экспорта всех графиков: {e}")
+            self._show_error(f"Ошибка экспорта всех графиков: {str(e)}")
             
     def _export_current_plot(self):
         """Экспорт текущего графика"""
