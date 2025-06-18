@@ -330,7 +330,8 @@ class PlotVisualizationPanel(ttk.Frame):
                 return
 
             if not parameters:
-                self._show_warning("Нет выбранных параметров для построения графиков")
+                self._show_warning(
+                    "Нет выбранных параметров для построения графиков")
                 return
 
             self.is_building_plots = True
@@ -338,8 +339,7 @@ class PlotVisualizationPanel(ttk.Frame):
 
             # ДИАГНОСТИКА: Проверяем данные
             self.logger.info(
-                f"Начало построения графиков для {len(parameters)} параметров"
-            )
+                f"Начало построения графиков для {len(parameters)} параметров")
             self.logger.info(f"Временной диапазон: {start_time} - {end_time}")
 
             # Проверяем PlotBuilder
@@ -366,19 +366,18 @@ class PlotVisualizationPanel(ttk.Frame):
                 data_loader = self.plot_builder.data_loader
                 self.logger.info(f"DataLoader тип: {type(data_loader)}")
                 self.logger.info(
-                    f"DataLoader атрибуты: {[attr for attr in dir(data_loader) if not attr.startswith('_')]}"
-                )
-                if hasattr(data_loader, "data"):
-                    self.logger.info(f"data_loader.data: {type(data_loader.data)}")
-                    if hasattr(data_loader.data, "shape"):
-                        self.logger.info(f"Размер данных: {data_loader.data.shape}")
+                    f"DataLoader атрибуты: {[attr for attr in dir(data_loader) if not attr.startswith('_')]}")
 
-                if hasattr(data_loader, "parameters"):
+                if hasattr(data_loader, 'data'):
                     self.logger.info(
-                        f"Количество параметров: {len(data_loader.parameters) if data_loader.parameters else 0}"
-                    )
-                self._show_error("Нет данных для построения графиков")
-                return
+                        f"data_loader.data: {type(data_loader.data)}")
+                    if hasattr(data_loader.data, 'shape'):
+                        self.logger.info(
+                            f"Размер данных: {data_loader.data.shape}")
+
+                if hasattr(data_loader, 'parameters'):
+                    self.logger.info(
+                        f"Количество параметров: {len(data_loader.parameters) if data_loader.parameters else 0}")
 
             # Удаляем приветственную вкладку если есть
             self._remove_welcome_tab()
@@ -392,21 +391,19 @@ class PlotVisualizationPanel(ttk.Frame):
             for group_name, group_params in plot_groups.items():
                 try:
                     self._create_plot_tab(
-                        group_name, group_params, start_time, end_time
-                    )
+                        group_name, group_params, start_time, end_time)
                     success_count += 1
                 except Exception as e:
-                    self.logger.error(f"Ошибка создания графика '{group_name}': {e}")
+                    self.logger.error(
+                        f"Ошибка создания графика '{group_name}': {e}")
                     continue
 
             if success_count > 0:
                 self.logger.info(
-                    f"Успешно создано {success_count} графиков из {len(plot_groups)}"
-                )
+                    f"Успешно создано {success_count} графиков из {len(plot_groups)}")
             else:
                 self._show_error(
-                    "Не удалось создать ни одного графика. Проверьте данные и логи."
-                )
+                    "Не удалось создать ни одного графика. Проверьте данные и логи.")
 
         except Exception as e:
             self.logger.error(f"Ошибка построения графиков: {e}")
@@ -661,23 +658,162 @@ class PlotVisualizationPanel(ttk.Frame):
             if tab_text not in self.plot_tabs:
                 return
 
-            # Выбор файла для сохранения
-            file_path = filedialog.asksaveasfilename(
-                defaultextension=".png",
-                filetypes=[
-                    ("PNG files", "*.png"),
-                    ("PDF files", "*.pdf"),
-                    ("SVG files", "*.svg"),
-                    ("EPS files", "*.eps"),
-                ],
-                title=f"Экспорт графика: {tab_text}",
+            # Создание копии
+            tab_info = self.plot_tabs[tab_text]
+            new_name = f"{tab_text} (копия)"
+
+            self._create_plot_tab(
+                new_name,
+                tab_info['parameters'],
+                tab_info['start_time'],
+                tab_info['end_time']
             )
 
-            if file_path:
-                tab_info = self.plot_tabs[tab_text]
-                tab_info["figure"].savefig(file_path, dpi=300, bbox_inches="tight")
-                self._show_info(f"График сохранен: {file_path}")
+        except Exception as e:
+            self.logger.error(f"Ошибка дублирования графика: {e}")
+
+    def _configure_current_plot(self):
+        """Настройка текущего графика"""
+        # Заглушка для будущей реализации
+        self._show_info(
+            "Настройки графика будут реализованы в следующей версии")
+
+    def _close_current_plot(self):
+        """Закрытие текущего графика"""
+        try:
+            current_tab = self.notebook.select()
+            if not current_tab:
+                return
+
+            tab_text = self.notebook.tab(current_tab, "text")
+
+            # Подтверждение закрытия
+            if messagebox.askyesno("Закрытие графика", f"Закрыть график '{tab_text}'?"):
+                # Удаляем из адаптера
+                self.plot_adapter.remove_plot(tab_text)
+
+                # Удаляем вкладку
+                self.notebook.forget(current_tab)
+
+                # Удаляем из словаря
+                if tab_text in self.plot_tabs:
+                    del self.plot_tabs[tab_text]
+
+                # Если больше нет вкладок, создаем приветственную
+                if not self.notebook.tabs():
+                    self._create_welcome_tab()
 
         except Exception as e:
-            self.logger.error(f"Ошибка экспорта текущего графика: {e}")
-            self._show_error(f"Ошибка экспорта: {str(e)}")            
+            self.logger.error(f"Ошибка закрытия графика: {e}")
+
+    # === ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ===
+
+    def _get_selected_parameters(self) -> List[Dict[str, Any]]:
+        """Получение выбранных параметров через контроллер"""
+        try:
+            # Основной способ: через контроллер
+            if self.controller and hasattr(self.controller, 'get_selected_parameters'):
+                selected = self.controller.get_selected_parameters()
+                self.logger.debug(
+                    f"Получено параметров через контроллер: {len(selected)}")
+                return selected
+
+            # Fallback: прямой доступ к UI компонентам
+            if self.controller and hasattr(self.controller, 'view'):
+                view = self.controller.view
+
+                # Через ui_components
+                if (hasattr(view, 'ui_components') and
+                    view.ui_components and
+                        hasattr(view.ui_components, 'parameter_panel')):
+
+                    parameter_panel = view.ui_components.parameter_panel
+                    if hasattr(parameter_panel, 'get_selected_parameters'):
+                        selected = parameter_panel.get_selected_parameters()
+                        self.logger.debug(
+                            f"Получено параметров через fallback: {len(selected)}")
+                        return selected
+
+            self.logger.warning(
+                "Контроллер недоступен или не имеет нужных методов")
+            return []
+
+        except Exception as e:
+            self.logger.error(
+                f"Ошибка получения параметров в PlotVisualizationPanel: {e}")
+            return []
+
+    def _get_time_range(self) -> Tuple[Optional[datetime], Optional[datetime]]:
+        """Получение временного диапазона"""
+        try:
+            if self.controller and hasattr(self.controller, 'view'):
+                ui_components = self.controller.view.get_component(
+                    'ui_components')
+                if ui_components:
+                    from_str, to_str = ui_components.get_time_range()
+                    if from_str and to_str:
+                        from_time = datetime.strptime(
+                            from_str, '%Y-%m-%d %H:%M:%S')
+                        to_time = datetime.strptime(
+                            to_str, '%Y-%m-%d %H:%M:%S')
+                        return from_time, to_time
+            return None, None
+        except Exception as e:
+            self.logger.error(f"Ошибка получения временного диапазона: {e}")
+            return None, None
+
+    def _show_building_progress(self, show: bool):
+        """Показ/скрытие индикатора построения"""
+        try:
+            if show:
+                self.control_frame.config(
+                    text="Управление графиками - Построение...")
+            else:
+                self.control_frame.config(text="Управление графиками")
+        except Exception:
+            pass
+
+    def _show_info(self, message: str):
+        """Показ информационного сообщения"""
+        messagebox.showinfo("Информация", message)
+
+    def _show_warning(self, message: str):
+        """Показ предупреждения"""
+        messagebox.showwarning("Предупреждение", message)
+
+    def _show_error(self, message: str):
+        """Показ ошибки"""
+        messagebox.showerror("Ошибка", message)
+
+    # === ПУБЛИЧНЫЕ МЕТОДЫ ===
+
+    def reset_all_zoom(self):
+        """Сброс масштабирования для всех графиков"""
+        self.plot_adapter.reset_zoom_all()
+
+    def clear_all_annotations(self):
+        """Очистка аннотаций для всех графиков"""
+        self.plot_adapter.clear_annotations_all()
+
+    def export_all_plots(self):
+        """Публичный метод экспорта всех графиков"""
+        self._export_all_plots()
+
+    def set_session(self, session_id: str):
+        """Установка текущей сессии"""
+        self.current_session_id = session_id
+        self.logger.info(f"Установлена сессия: {session_id}")
+
+    def cleanup(self):
+        """Очистка ресурсов"""
+        try:
+            self.plot_adapter.cleanup_all()
+            self.plot_tabs.clear()
+            self.controller = None
+            self.filter_use_case = None
+            self.plot_use_case = None
+
+            self.logger.info("PlotVisualizationPanel очищен")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка очистки PlotVisualizationPanel: {e}")
