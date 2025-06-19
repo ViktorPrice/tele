@@ -1,4 +1,3 @@
-#src\infrastructure\plotting\core\plot_builder.py
 """
 Построитель графиков с поддержкой различных стратегий
 """
@@ -64,70 +63,174 @@ class PlotBuilder:
         self.default_colors = plt.cm.tab20(np.linspace(0, 1, 20))
         self.max_params_per_plot = 20
 
-    def diagnose_data_loader(self):
-        """ДИАГНОСТИЧЕСКИЙ метод для отладки"""
-        try:
-            self.logger.info("=== ДИАГНОСТИКА DATA_LOADER ===")
-            self.logger.info(f"Тип data_loader: {type(self.data_loader)}")
-            
-            # Проверяем атрибуты
-            attrs = [attr for attr in dir(self.data_loader) if not attr.startswith('_')]
-            self.logger.info(f"Доступные атрибуты: {attrs}")
-            
-            # Проверяем данные
-            if hasattr(self.data_loader, 'data'):
-                data = self.data_loader.data
-                self.logger.info(f"data тип: {type(data)}")
-                if hasattr(data, 'shape'):
-                    self.logger.info(f"Размер данных: {data.shape}")
-                if hasattr(data, 'columns'):
-                    self.logger.info(f"Столбцы: {list(data.columns)[:10]}...")  # Первые 10
-            
-            # Проверяем параметры
-            if hasattr(self.data_loader, 'parameters'):
-                params = self.data_loader.parameters
-                self.logger.info(f"Параметров: {len(params) if params else 0}")
-                if params:
-                    self.logger.info(f"Первый параметр: {params[0]}")
-            
-            # Проверяем методы валидации
-            if hasattr(self.data_loader, 'validate_data'):
-                try:
-                    is_valid = self.data_loader.validate_data()
-                    self.logger.info(f"validate_data(): {is_valid}")
-                except Exception as e:
-                    self.logger.error(f"Ошибка validate_data(): {e}")
-            
-            self.logger.info("=== КОНЕЦ ДИАГНОСТИКИ ===")
-            
-        except Exception as e:
-            self.logger.error(f"Ошибка диагностики: {e}")
+    def _configure_plot_appearance(self, ax: Axes, title: str,
+                                   start_time: datetime, end_time: datetime):
+        """Настройка внешнего вида графика"""
+        # Заголовок и подписи осей
+        ax.set_title(title, fontsize=14, fontweight='bold')
+        ax.set_xlabel("Время", fontsize=12)
+        ax.set_ylabel("Значение", fontsize=12)
+
+        # Сетка
+        ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+
+        # ЕДИНАЯ настройка оси времени с сохранением границ
+        self._configure_time_axis_with_bounds(ax, start_time, end_time)
+
+        # Легенда
+        if ax.get_lines():
+            legend = ax.legend(
+                bbox_to_anchor=(1.05, 1), loc='upper left',
+                fontsize=8, frameon=True, fancybox=True, shadow=True
+            )
+            legend.get_frame().set_alpha(0.9)
+
+        # Автоматическое масштабирование по Y
+        ax.autoscale(axis='y', tight=True)
+
+        # Улучшение внешнего вида
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_color('#CCCCCC')
+        ax.spines['bottom'].set_color('#CCCCCC')
+
+    def _configure_time_axis_with_bounds(self, ax: Axes, start_time: datetime, end_time: datetime):
+        """ОБЪЕДИНЕННАЯ настройка оси времени с сохранением границ"""
+        import matplotlib.dates as mdates
+        
+        # Преобразуем в числовой формат matplotlib
+        start_num = mdates.date2num(start_time)
+        end_num = mdates.date2num(end_time)
+        
+        # СОХРАНЯЕМ границы в PlotBuilder для передачи в zoom interaction
+        self.time_bounds = {
+            'start_time': start_time,
+            'end_time': end_time,
+            'start_num': start_num,
+            'end_num': end_num
+        }
+        
+        # Устанавливаем границы
+        ax.set_xlim(start_num, end_num)
+        
+        # Настройка адаптивного форматирования
+        def format_time_based_on_range(ax):
+            """Функция для динамического изменения форматирования"""
+            try:
+                xlim = ax.get_xlim()
+                current_start = mdates.num2date(xlim[0])
+                current_end = mdates.num2date(xlim[1])
+                duration = (current_end - current_start).total_seconds()
+                
+                # Выбираем формат в зависимости от текущего диапазона
+                if duration <= 0.1:  # До 100 миллисекунд
+                    locator = mdates.MicrosecondLocator(interval=10000)
+                    formatter = mdates.DateFormatter("%H:%M:%S.%f")
+                    minor_locator = mdates.MicrosecondLocator(interval=5000)
+                elif duration <= 0.5:  # До 500 миллисекунд
+                    locator = mdates.MicrosecondLocator(interval=50000)
+                    formatter = mdates.DateFormatter("%H:%M:%S.%f")
+                    minor_locator = mdates.MicrosecondLocator(interval=10000)
+                elif duration <= 1:  # До 1 секунды
+                    locator = mdates.MicrosecondLocator(interval=100000)
+                    formatter = mdates.DateFormatter("%H:%M:%S.%f")
+                    minor_locator = mdates.MicrosecondLocator(interval=50000)
+                elif duration <= 5:  # До 5 секунд
+                    locator = mdates.MicrosecondLocator(interval=500000)
+                    formatter = mdates.DateFormatter("%H:%M:%S.%f")
+                    minor_locator = mdates.MicrosecondLocator(interval=100000)
+                elif duration <= 10:  # До 10 секунд
+                    locator = mdates.SecondLocator(interval=1)
+                    formatter = mdates.DateFormatter("%H:%M:%S")
+                    minor_locator = mdates.MicrosecondLocator(interval=500000)
+                elif duration <= 60:  # До минуты
+                    locator = mdates.SecondLocator(interval=5)
+                    formatter = mdates.DateFormatter("%H:%M:%S")
+                    minor_locator = mdates.SecondLocator(interval=1)
+                elif duration <= 300:  # До 5 минут
+                    locator = mdates.SecondLocator(interval=30)
+                    formatter = mdates.DateFormatter("%H:%M:%S")
+                    minor_locator = mdates.SecondLocator(interval=10)
+                elif duration <= 1800:  # До 30 минут
+                    locator = mdates.MinuteLocator(interval=1)
+                    formatter = mdates.DateFormatter("%H:%M:%S")
+                    minor_locator = mdates.SecondLocator(interval=30)
+                elif duration <= 3600:  # До часа
+                    locator = mdates.MinuteLocator(interval=5)
+                    formatter = mdates.DateFormatter("%H:%M:%S")
+                    minor_locator = mdates.MinuteLocator(interval=1)
+                elif duration <= 21600:  # До 6 часов
+                    locator = mdates.MinuteLocator(interval=30)
+                    formatter = mdates.DateFormatter("%H:%M")
+                    minor_locator = mdates.MinuteLocator(interval=10)
+                elif duration <= 86400:  # До дня
+                    locator = mdates.HourLocator(interval=1)
+                    formatter = mdates.DateFormatter("%H:%M")
+                    minor_locator = mdates.MinuteLocator(interval=30)
+                else:  # Больше дня
+                    locator = mdates.HourLocator(interval=6)
+                    formatter = mdates.DateFormatter("%d/%m %H:%M")
+                    minor_locator = mdates.HourLocator(interval=1)
+                
+                # Применяем новые настройки
+                ax.xaxis.set_major_locator(locator)
+                ax.xaxis.set_major_formatter(formatter)
+                ax.xaxis.set_minor_locator(minor_locator)
+                
+                # Настройка внешнего вида меток
+                ax.tick_params(which='minor', length=2, color='gray', alpha=0.7)
+                
+                # Настройка размера шрифта
+                fontsize = 7 if duration <= 1 else (8 if duration <= 10 else 9)
+                plt.setp(ax.xaxis.get_majorticklabels(), fontsize=fontsize)
+                
+                # Поворот меток
+                plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha='right')
+                
+                self.logger.debug(f"Обновлено форматирование времени для диапазона {duration:.3f}с")
+                
+            except Exception as e:
+                self.logger.error(f"Ошибка адаптивного форматирования: {e}")
+        
+        # Сохраняем функцию для использования в zoom interaction
+        ax._time_formatter = format_time_based_on_range
+        
+        # Добавляем ссылку на границы в ax для zoom interaction
+        ax._time_bounds = self.time_bounds
+        
+        # Первоначальная настройка
+        format_time_based_on_range(ax)
+        
+        # Логирование
+        self.logger.info(f"Ось времени настроена: {start_time} - {end_time}")
+
+    def get_time_bounds(self) -> dict:
+        """Получение временных границ для zoom interaction"""
+        return getattr(self, 'time_bounds', None)
 
     def _has_data(self) -> bool:
-        """ИСПРАВЛЕННАЯ проверка наличия данных"""
+        """Проверка наличия данных для построения графиков"""
         try:
-            # Способ 1: Проверяем через validate_data
-            if hasattr(self.data_loader, 'validate_data'):
-                if self.data_loader.validate_data():
-                    return True
-
-            # Способ 2: Проверяем наличие данных напрямую
-            if hasattr(self.data_loader, 'data') and self.data_loader.data is not None:
+            if not self.data_loader:
+                self.logger.warning("data_loader не инициализирован")
+                return False
+                
+            if hasattr(self.data_loader, 'data'):
+                if self.data_loader.data is None:
+                    self.logger.warning("data_loader.data is None")
+                    return False
+                    
                 if hasattr(self.data_loader.data, 'empty'):
-                    return not self.data_loader.data.empty
-                return len(self.data_loader.data) > 0
-
-            # Способ 3: Проверяем через parameters
-            if hasattr(self.data_loader, 'parameters') and self.data_loader.parameters:
-                return len(self.data_loader.parameters) > 0
-
-            # Способ 4: Проверяем через records_count
-            if hasattr(self.data_loader, 'records_count'):
-                return self.data_loader.records_count > 0
-
-            self.logger.warning("Не удалось определить наличие данных")
+                    if self.data_loader.data.empty:
+                        self.logger.warning("DataFrame пуст")
+                        return False
+                    return True
+                    
+                return True
+                
+            self.logger.warning("data_loader не содержит атрибута data")
             return False
-
+            
         except Exception as e:
             self.logger.error(f"Ошибка проверки данных: {e}")
             return False
@@ -217,10 +320,12 @@ class PlotBuilder:
                 # Способ 1: По full_column
                 if param.get('full_column') and param['full_column'] in filtered_df.columns:
                     col_name = param['full_column']
+                    self.logger.debug(f"Столбец найден по full_column: {col_name}")
                 
                 # Способ 2: По signal_code
                 elif param.get('signal_code') and param['signal_code'] in filtered_df.columns:
                     col_name = param['signal_code']
+                    self.logger.debug(f"Столбец найден по signal_code: {col_name}")
                 
                 # Способ 3: Поиск по паттерну
                 elif param.get('signal_code'):
@@ -229,12 +334,14 @@ class PlotBuilder:
                     matching_cols = [col for col in filtered_df.columns if signal_code in col]
                     if matching_cols:
                         col_name = matching_cols[0]
+                        self.logger.debug(f"Столбец найден по паттерну: {col_name}")
                 
                 # Способ 4: Для тестовых данных
                 if not col_name and idx < len(filtered_df.columns) - 1:  # -1 для timestamp
                     available_cols = [col for col in filtered_df.columns if col != timestamp_col]
                     if idx < len(available_cols):
                         col_name = available_cols[idx]
+                        self.logger.debug(f"Столбец выбран для тестовых данных: {col_name}")
 
                 if not col_name:
                     self.logger.warning(f"Столбец не найден для параметра: {param.get('signal_code', 'Unknown')}")
@@ -271,7 +378,7 @@ class PlotBuilder:
         """УЛУЧШЕННОЕ создание метки для параметра"""
         signal_code = param.get('signal_code', col_name or f'Param_{index}')
         description = param.get('description', '')
-
+        
         if description and description != signal_code:
             # Ограничиваем длину описания
             max_desc_length = 30
@@ -280,63 +387,6 @@ class PlotBuilder:
             return f"{signal_code} - {description}"
         else:
             return signal_code
-
-    def _configure_plot_appearance(self, ax: Axes, title: str,
-                                   start_time: datetime, end_time: datetime):
-        """Настройка внешнего вида графика"""
-        # Заголовок и подписи осей
-        ax.set_title(title, fontsize=14, fontweight='bold')
-        ax.set_xlabel("Время", fontsize=12)
-        ax.set_ylabel("Значение", fontsize=12)
-
-        # Сетка
-        ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
-
-        # Настройка оси времени
-        self._configure_time_axis(ax, start_time, end_time)
-
-        # Легенда
-        if ax.get_lines():
-            legend = ax.legend(
-                bbox_to_anchor=(1.05, 1), loc='upper left',
-                fontsize=8, frameon=True, fancybox=True, shadow=True
-            )
-            legend.get_frame().set_alpha(0.9)
-
-        # Автоматическое масштабирование по Y
-        ax.autoscale(axis='y', tight=True)
-
-        # Улучшение внешнего вида
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_color('#CCCCCC')
-        ax.spines['bottom'].set_color('#CCCCCC')
-
-    def _configure_time_axis(self, ax: Axes, start_time: datetime, end_time: datetime):
-        """Настройка оси времени"""
-        duration = (end_time - start_time).total_seconds()
-
-        if duration <= 1:
-            locator = mdates.MicrosecondLocator(interval=100000)
-            formatter = mdates.DateFormatter("%H:%M:%S.%f")
-        elif duration <= 10:
-            locator = mdates.SecondLocator(interval=1)
-            formatter = mdates.DateFormatter("%H:%M:%S")
-        elif duration <= 60:
-            locator = mdates.SecondLocator(interval=5)
-            formatter = mdates.DateFormatter("%H:%M:%S")
-        else:
-            locator = mdates.AutoDateLocator()
-            formatter = mdates.DateFormatter("%H:%M:%S")
-
-        ax.xaxis.set_major_locator(locator)
-        ax.xaxis.set_major_formatter(formatter)
-
-        # Поворот меток времени
-        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
-
-        # Установка пределов времени
-        ax.set_xlim(mdates.date2num(start_time), mdates.date2num(end_time))
 
     def _show_no_data_message(self, ax: Axes, message: str):
         """Отображение сообщения об отсутствии данных"""
@@ -372,43 +422,11 @@ class PlotBuilder:
                     self.logger.warning("Столбец времени не найден, возвращаем все данные")
                     return df
 
-            # Способ 2: Создаем синтетические данные для тестирования
-            self.logger.warning("Создаем синтетические данные для тестирования")
-            return self._create_synthetic_data(start_time, end_time)
+            # Способ 2: Возвращаем пустой DataFrame вместо создания синтетических данных
+            self.logger.warning("Данные не найдены, возвращаем пустой DataFrame")
+            return pd.DataFrame()
 
         except Exception as e:
             self.logger.error(f"Ошибка получения данных: {e}")
-            import pandas as pd
-            return pd.DataFrame()
-
-    def _create_synthetic_data(self, start_time: datetime, end_time: datetime):
-        """Создание синтетических данных для тестирования"""
-        try:
-            import pandas as pd
-            import numpy as np
-            
-            # Создаем временной ряд
-            time_range = pd.date_range(start=start_time, end=end_time, freq='1S')
-            
-            # Создаем DataFrame с синтетическими данными
-            data = {'timestamp': time_range}
-            
-            # Добавляем синтетические сигналы
-            np.random.seed(42)  # Для воспроизводимости
-            for i in range(5):  # 5 тестовых сигналов
-                signal_name = f'TEST_SIGNAL_{i+1}'
-                if i % 2 == 0:
-                    # Булевые сигналы (0/1)
-                    data[signal_name] = np.random.choice([0, 1], size=len(time_range))
-                else:
-                    # Аналоговые сигналы
-                    data[signal_name] = np.random.normal(100, 20, size=len(time_range))
-            
-            df = pd.DataFrame(data)
-            self.logger.info(f"Созданы синтетические данные: {len(df)} записей, {len(df.columns)-1} сигналов")
-            return df
-            
-        except Exception as e:
-            self.logger.error(f"Ошибка создания синтетических данных: {e}")
             import pandas as pd
             return pd.DataFrame()
