@@ -115,6 +115,53 @@ class SmartFilterPanel(ttk.Frame):
         except Exception as e:
             self.logger.error(f"Ошибка создания компактного UI: {e}")
 
+    def _create_quick_actions_bar(self):
+        """Создание горизонтальной панели быстрых действий"""
+        try:
+            quick_actions_frame = ttk.Frame(self)
+            quick_actions_frame.grid(row=2, column=0, sticky="ew", pady=(5, 5))
+            quick_actions_frame.grid_columnconfigure(0, weight=1)
+
+            # Кнопка сброса всех фильтров
+            reset_button = ttk.Button(
+                quick_actions_frame,
+                text="Сбросить фильтры",
+                command=self._reset_all_filters
+            )
+            reset_button.pack(side="left", padx=5)
+
+            # Кнопка применения фильтров
+            apply_button = ttk.Button(
+                quick_actions_frame,
+                text="Применить фильтры",
+                command=self._apply_filters
+            )
+            apply_button.pack(side="left", padx=5)
+
+            self.logger.info("Панель быстрых действий создана")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка создания панели быстрых действий: {e}")
+
+    def _reset_all_filters(self):
+        """Сброс всех фильтров к значениям по умолчанию"""
+        try:
+            # Сброс состояний фильтров
+            self.state = FilterState()
+            self._update_statistics()
+            self._notify_state_changed()
+            self.logger.info("Все фильтры сброшены")
+        except Exception as e:
+            self.logger.error(f"Ошибка сброса фильтров: {e}")
+
+    def _apply_filters(self):
+        """Применение текущих фильтров"""
+        try:
+            self._notify_state_changed()
+            self.logger.info("Фильтры применены")
+        except Exception as e:
+            self.logger.error(f"Ошибка применения фильтров: {e}")
+
     def _create_tabs(self):
         """Создание вкладок для разделов фильтров"""
         tab_definitions = [

@@ -103,6 +103,10 @@ class PlotVisualizationPanel(ttk.Frame):
         self._setup_ui()
         self._setup_use_cases()
 
+        # Создаем приветственную вкладку при инициализации, если нет других вкладок
+        if self.notebook and len(self.notebook.tabs()) == 0:
+            self._create_welcome_tab()
+
         self.logger.info("PlotVisualizationPanel инициализирован")
 
     def _setup_ui(self):
@@ -218,8 +222,40 @@ class PlotVisualizationPanel(ttk.Frame):
         self.notebook.bind("<Button-3>", self._on_tab_right_click)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
+    def _on_tab_changed(self, event):
+        """Обработчик изменения вкладки"""
+        try:
+            selected_tab = event.widget.select()
+            tab_text = event.widget.tab(selected_tab, "text")
+            self.logger.info(f"Вкладка изменена: {tab_text}")
+            # Можно добавить логику обновления состояния или данных при смене вкладки
+        except Exception as e:
+            self.logger.error(f"Ошибка в обработчике изменения вкладки: {e}")
+
         # Создаем стартовую вкладку
         self._create_welcome_tab()
+
+    def _on_tab_right_click(self, event):
+        """Обработчик правого клика по вкладке"""
+        try:
+            # Определяем вкладку под курсором
+            x, y = event.x, event.y
+            element = self.notebook.identify(x, y)
+            if element != "label":
+                return
+
+            tab_index = self.notebook.index(f"@{x},{y}")
+            if tab_index < 0:
+                return
+
+            # Выделяем вкладку
+            self.notebook.select(tab_index)
+
+            # Показываем контекстное меню
+            if hasattr(self, "context_menu"):
+                self.context_menu.tk_popup(event.x_root, event.y_root)
+        except Exception as e:
+            self.logger.error(f"Ошибка обработки правого клика по вкладке: {e}")
 
     def _create_welcome_tab(self):
         """Создание приветственной вкладки"""
@@ -291,6 +327,37 @@ class PlotVisualizationPanel(ttk.Frame):
         self.context_menu.add_command(
             label="❌ Закрыть", command=self._close_current_plot
         )
+
+    def _duplicate_current_plot(self):
+        """Дублирование текущей вкладки графика"""
+        try:
+            current_tab = self.notebook.select()
+            if not current_tab:
+                self.logger.warning("Нет выбранной вкладки для дублирования")
+                return
+
+            tab_text = self.notebook.tab(current_tab, "text")
+            if tab_text not in self.plot_tabs:
+                self.logger.warning(f"Вкладка '{tab_text}' не найдена в plot_tabs")
+                return
+
+            tab_info = self.plot_tabs[tab_text]
+            parameters = tab_info.get("parameters", [])
+            start_time = tab_info.get("start_time")
+            end_time = tab_info.get("end_time")
+
+            # Создаем новую вкладку с суффиксом " (копия)"
+            new_tab_name = f"{tab_text} (копия)"
+            suffix_index = 1
+            while new_tab_name in self.plot_tabs:
+                suffix_index += 1
+                new_tab_name = f"{tab_text} (копия {suffix_index})"
+
+            self._create_plot_tab(new_tab_name, parameters, start_time, end_time)
+            self.logger.info(f"Вкладка графика '{tab_text}' дублирована как '{new_tab_name}'")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка дублирования вкладки графика: {e}")
 
     def _setup_use_cases(self):
         """Настройка Use Cases"""
@@ -391,6 +458,7 @@ class PlotVisualizationPanel(ttk.Frame):
             success_count = 0
             for group_name, group_params in plot_groups.items():
                 try:
+                    self.logger.info(f"Создание вкладки графика: {group_name} с {len(group_params)} параметрами")
                     self._create_plot_tab(
                         group_name, group_params, start_time, end_time
                     )
@@ -520,6 +588,7 @@ class PlotVisualizationPanel(ttk.Frame):
             for i, tab_id in enumerate(self.notebook.tabs()):
                 tab_text = self.notebook.tab(tab_id, "text")
                 if tab_text == "Добро пожаловать":
+                    self.logger.info("Удаление приветственной вкладки")
                     self.notebook.forget(i)
                     break
         except Exception as e:
@@ -540,6 +609,24 @@ class PlotVisualizationPanel(ttk.Frame):
 
         except Exception as e:
             self.logger.error(f"Ошибка обновления графиков: {e}")
+
+    def _refresh_current_plot(self):
+        """Обновление текущего графика"""
+        try:
+            current_tab = self.notebook.select()
+            if not current_tab:
+                return
+
+            tab_text = self.notebook.tab(current_tab, "text")
+            if tab_text not in self.plot_tabs:
+                return
+
+            tab_info = self.plot_tabs[tab_text]
+            self._refresh_plot(tab_text, tab_info)
+            self.logger.info(f"Текущий график '{tab_text}' обновлен")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления текущего графика: {e}")
 
     def _refresh_plot(self, tab_name: str, tab_info: Dict[str, Any]):
         """Обновление конкретного графика"""
@@ -623,35 +710,235 @@ class PlotVisualizationPanel(ttk.Frame):
         except Exception as e:
             self.logger.error(f"Ошибка экспорта текущего графика: {e}")
             self._show_error(f"Ошибка экспорта: {str(e)}")
-            
-    def _export_current_plot(self):
-        """Экспорт текущего графика"""
+
+    def _export_all_plots(self):
+        """Экспорт всех графиков в выбранную папку"""
+        try:
+            if not self.plot_tabs:
+                self._show_warning("Нет графиков для экспорта")
+                return
+
+            folder_path = filedialog.askdirectory(title="Выберите папку для экспорта всех графиков")
+            if not folder_path:
+                return
+
+            for tab_name, tab_info in self.plot_tabs.items():
+                safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in tab_name)
+                file_path = f"{folder_path}/{safe_name}.png"
+                tab_info["figure"].savefig(file_path, dpi=300, bbox_inches="tight")
+                self.logger.info(f"График '{tab_name}' экспортирован в {file_path}")
+
+            self._show_info(f"Все графики успешно экспортированы в {folder_path}")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка экспорта всех графиков: {e}")
+            self._show_error(f"Ошибка экспорта всех графиков: {str(e)}")
+
+    def _clear_all_plots(self):
+        """Очистка всех графиков и вкладок"""
+        try:
+            if not self.plot_tabs:
+                return
+
+            for tab_name in list(self.plot_tabs.keys()):
+                tab_info = self.plot_tabs[tab_name]
+                container = tab_info.get("container")
+                if container:
+                    self.notebook.forget(container)
+                # Очистка ресурсов
+                time_zoom = tab_info.get("time_zoom_interaction")
+                if time_zoom:
+                    time_zoom.cleanup()
+
+            self.plot_tabs.clear()
+            self._create_welcome_tab()
+            self.logger.info("Все графики очищены")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка очистки графиков: {e}")
+
+    def _configure_current_plot(self):
+        """Настройка текущего графика"""
+        try:
+            current_tab = self.notebook.select()
+            if not current_tab:
+                self.logger.warning("Нет выбранной вкладки для настройки")
+                return
+
+            tab_text = self.notebook.tab(current_tab, "text")
+            if tab_text not in self.plot_tabs:
+                self.logger.warning(f"Вкладка '{tab_text}' не найдена в plot_tabs")
+                return
+
+            # Создаем окно настроек
+            config_window = tk.Toplevel(self)
+            config_window.title(f"Настройки графика: {tab_text}")
+            config_window.geometry("400x300")
+            config_window.transient(self)
+            config_window.grab_set()
+
+            # Основной фрейм
+            main_frame = ttk.Frame(config_window, padding="10")
+            main_frame.pack(fill=tk.BOTH, expand=True)
+
+            # Настройки отображения
+            display_frame = ttk.LabelFrame(main_frame, text="Отображение", padding="5")
+            display_frame.pack(fill=tk.X, pady=(0, 10))
+
+            # Тип графика
+            ttk.Label(display_frame, text="Тип графика:").grid(row=0, column=0, sticky="w")
+            plot_type_var = tk.StringVar(value=self.plot_type_var.get() if self.plot_type_var else "step")
+            plot_type_combo = ttk.Combobox(
+                display_frame,
+                textvariable=plot_type_var,
+                values=["line", "step", "scatter"],
+                state="readonly"
+            )
+            plot_type_combo.grid(row=0, column=1, sticky="ew", padx=(5, 0))
+
+            # Цветовая схема
+            ttk.Label(display_frame, text="Цветовая схема:").grid(row=1, column=0, sticky="w", pady=(5, 0))
+            color_scheme_var = tk.StringVar(value="default")
+            color_scheme_combo = ttk.Combobox(
+                display_frame,
+                textvariable=color_scheme_var,
+                values=["default", "viridis", "plasma", "coolwarm"],
+                state="readonly"
+            )
+            color_scheme_combo.grid(row=1, column=1, sticky="ew", padx=(5, 0), pady=(5, 0))
+
+            display_frame.grid_columnconfigure(1, weight=1)
+
+            # Кнопки
+            button_frame = ttk.Frame(main_frame)
+            button_frame.pack(fill=tk.X, pady=(10, 0))
+
+            def apply_settings():
+                try:
+                    # Применяем настройки
+                    self.plot_type_var.set(plot_type_var.get())
+                    
+                    # Перестраиваем график
+                    tab_info = self.plot_tabs[tab_text]
+                    self._refresh_plot(tab_text, tab_info)
+                    
+                    config_window.destroy()
+                    self.logger.info(f"Настройки графика '{tab_text}' применены")
+                except Exception as e:
+                    self.logger.error(f"Ошибка применения настроек: {e}")
+
+            ttk.Button(button_frame, text="Применить", command=apply_settings).pack(side=tk.RIGHT, padx=(5, 0))
+            ttk.Button(button_frame, text="Отмена", command=config_window.destroy).pack(side=tk.RIGHT)
+
+        except Exception as e:
+            self.logger.error(f"Ошибка настройки графика: {e}")
+
+    def _close_current_plot(self):
+        """Закрытие текущей вкладки графика"""
         try:
             current_tab = self.notebook.select()
             if not current_tab:
                 return
 
             tab_text = self.notebook.tab(current_tab, "text")
-            if tab_text not in self.plot_tabs:
-                return
+            if tab_text == "Добро пожаловать":
+                return  # Не закрываем приветственную вкладку
 
-            # Выбор файла для сохранения
-            file_path = filedialog.asksaveasfilename(
-                defaultextension=".png",
-                filetypes=[
-                    ("PNG files", "*.png"),
-                    ("PDF files", "*.pdf"),
-                    ("SVG files", "*.svg"),
-                    ("EPS files", "*.eps"),
-                ],
-                title=f"Экспорт графика: {tab_text}",
-            )
-
-            if file_path:
+            if tab_text in self.plot_tabs:
                 tab_info = self.plot_tabs[tab_text]
-                tab_info["figure"].savefig(file_path, dpi=300, bbox_inches="tight")
-                self._show_info(f"График сохранен: {file_path}")
+                
+                # Очистка ресурсов
+                time_zoom = tab_info.get("time_zoom_interaction")
+                if time_zoom:
+                    time_zoom.cleanup()
+                
+                # Удаляем из словаря
+                del self.plot_tabs[tab_text]
+
+            # Закрываем вкладку
+            self.notebook.forget(current_tab)
+            
+            # Если не осталось вкладок, создаем приветственную
+            if len(self.notebook.tabs()) == 0:
+                self._create_welcome_tab()
+
+            self.logger.info(f"Вкладка графика '{tab_text}' закрыта")
 
         except Exception as e:
-            self.logger.error(f"Ошибка экспорта текущего графика: {e}")
-            self._show_error(f"Ошибка экспорта: {str(e)}")            
+            self.logger.error(f"Ошибка закрытия вкладки графика: {e}")
+
+    # === ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ===
+
+    def _get_selected_parameters(self) -> List[Dict[str, Any]]:
+        """Получение выбранных параметров из контроллера"""
+        try:
+            if self.controller and hasattr(self.controller, 'get_selected_parameters'):
+                return self.controller.get_selected_parameters()
+            return []
+        except Exception as e:
+            self.logger.error(f"Ошибка получения выбранных параметров: {e}")
+            return []
+
+    def _get_time_range(self) -> Tuple[Optional[datetime], Optional[datetime]]:
+        """Получение временного диапазона"""
+        try:
+            if self.controller and hasattr(self.controller, 'get_time_range'):
+                time_range = self.controller.get_time_range()
+                return time_range.get('start'), time_range.get('end')
+            return None, None
+        except Exception as e:
+            self.logger.error(f"Ошибка получения временного диапазона: {e}")
+            return None, None
+
+    def _show_building_progress(self, show: bool):
+        """Показ/скрытие индикатора построения графиков"""
+        try:
+            if show:
+                # Можно добавить прогресс-бар или изменить курсор
+                self.config(cursor="wait")
+            else:
+                self.config(cursor="")
+        except Exception as e:
+            self.logger.debug(f"Ошибка изменения индикатора прогресса: {e}")
+
+    def _show_info(self, message: str):
+        """Показ информационного сообщения"""
+        messagebox.showinfo("Информация", message)
+
+    def _show_warning(self, message: str):
+        """Показ предупреждения"""
+        messagebox.showwarning("Предупреждение", message)
+
+    def _show_error(self, message: str):
+        """Показ ошибки"""
+        messagebox.showerror("Ошибка", message)
+
+    # === ПУБЛИЧНЫЕ МЕТОДЫ ===
+
+    def set_controller(self, controller):
+        """Установка контроллера"""
+        self.controller = controller
+        self._setup_use_cases()
+        self.logger.info("Контроллер установлен в PlotVisualizationPanel")
+
+    def update_plots(self):
+        """Обновление всех графиков"""
+        if self.auto_update_var.get():
+            self._refresh_all_plots()
+
+    def clear_plots(self):
+        """Публичный метод очистки графиков"""
+        self._clear_all_plots()
+
+    def get_current_plot_info(self) -> Optional[Dict[str, Any]]:
+        """Получение информации о текущем графике"""
+        try:
+            current_tab = self.notebook.select()
+            if not current_tab:
+                return None
+
+            tab_text = self.notebook.tab(current_tab, "text")
+            return self.plot_tabs.get(tab_text)
+        except Exception as e:
+            self.logger.error(f"Ошибка получения информации о текущем графике: {e}")
+            return None

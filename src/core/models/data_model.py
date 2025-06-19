@@ -231,7 +231,18 @@ class DataModel:
 
             # Обрабатываем данные с приоритетом
             success = self._process_telemetry_data_priority(telemetry_data)
-            
+
+            # Логируем временные диапазоны для отладки
+            if self._time_range_fields:
+                self.logger.info(f"Временные поля после инициализации: {self._time_range_fields}")
+            else:
+                self.logger.warning("Временные поля после инициализации отсутствуют")
+
+            if telemetry_data and hasattr(telemetry_data, 'timestamp_range'):
+                self.logger.info(f"TelemetryData.timestamp_range: {telemetry_data.timestamp_range}")
+            else:
+                self.logger.warning("TelemetryData.timestamp_range отсутствует")
+
             if success:
                 # Обновляем кэш
                 self._last_file_path = file_path

@@ -58,6 +58,14 @@ class CSVDataLoader:
         self.logger.info(
             "CSVDataLoader инициализирован с приоритетной поддержкой")
 
+    def get_time_range(self) -> tuple:
+        """Возвращает временной диапазон в формате строк (min_timestamp, max_timestamp)"""
+        if self.min_timestamp and self.max_timestamp:
+            return (self.min_timestamp, self.max_timestamp)
+        else:
+            self.logger.warning("Временной диапазон не установлен, возвращаем fallback (0, 0)")
+            return ("0", "0")
+
     def get_parameters(self) -> list:
         """Возвращает текущий список параметров"""
         self.logger.debug(
@@ -918,7 +926,7 @@ class CSVDataLoader:
             return (now - timedelta(hours=1), now)
 
     def _build_timestamp_from_components(self, df: pd.DataFrame, timestamp_columns: List[str]) -> Optional[Tuple[datetime, datetime]]:
-        """Построение timestamp из компонентов"""
+        """Построение timestamp из компонентов с проверкой year 0"""
         try:
             # Ищем компоненты времени
             components = {}
@@ -947,8 +955,23 @@ class CSVDataLoader:
             first_row = df.iloc[0]
             last_row = df.iloc[-1]
 
+            # Проверяем и корректируем year если 0
+            def fix_year(value):
+                try:
+                    y = int(value)
+                    if y == 0:
+                        current_year = datetime.now().year
+                        self.logger.warning(f"Обнаружен год 0, заменяем на {current_year}")
+                        return current_year
+                    return y
+                except Exception:
+                    return datetime.now().year
+
+            start_year = fix_year(first_row[components['year']])
+            end_year = fix_year(last_row[components['year']])
+
             start_time = datetime(
-                year=int(first_row[components['year']]),
+                year=start_year,
                 month=int(first_row[components['month']]),
                 day=int(first_row[components['day']]),
                 hour=int(first_row[components['hour']]),
@@ -957,7 +980,7 @@ class CSVDataLoader:
             )
 
             end_time = datetime(
-                year=int(last_row[components['year']]),
+                year=end_year,
                 month=int(last_row[components['month']]),
                 day=int(last_row[components['day']]),
                 hour=int(last_row[components['hour']]),

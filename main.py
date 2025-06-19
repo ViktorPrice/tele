@@ -218,14 +218,70 @@ def _create_application_context_priority(components, logger):
         main_controller = components['MainController'](model, main_window)
         logger.info("[PRIORITY] MainController создан")
 
+        # НОВОЕ: Создание UIController и установка в MainController
+        from src.ui.controllers.ui_controller import UIController
+        ui_controller = UIController(main_window, main_controller.emit_event)
+        main_controller.set_ui_controller(ui_controller)
+        logger.info("[PRIORITY] UIController создан и установлен в MainController")
+
+        # УБРАНО: Установка ui_controller в main_window для корректной работы UI компонентов
+        # main_window.set_controller(ui_controller)
+        # logger.info("[PRIORITY] UIController установлен в MainWindow")
+
+        # НОВОЕ: Создание FilterController и установка в MainController
+        from src.ui.controllers.filter_controller import FilterController
+        filter_controller = FilterController(model, main_window, main_controller.emit_event, ui_controller)
+        main_controller.set_filter_controller(filter_controller)
+        logger.info("[PRIORITY] FilterController создан и установлен в MainController")
+
+        # НОВОЕ: Создание DataLoaderController и установка в MainController
+        from src.ui.controllers.data_loader_controller import DataLoaderController
+        data_loader_controller = DataLoaderController(model, main_window, main_controller.emit_event)
+        main_controller.set_data_loader_controller(data_loader_controller)
+        logger.info("[PRIORITY] DataLoaderController создан и установлен в MainController")
+
+        # НОВОЕ: Создание StateController и установка в MainController
+        from src.ui.controllers.state_controller import StateController
+        state_controller = StateController()
+        main_controller.set_state_controller(state_controller)
+        logger.info("[PRIORITY] StateController создан и установлен в MainController")
+
+        # НОВОЕ: Создание PlotController и установка в MainController
+        from src.ui.controllers.plot_controller import PlotController
+        plot_controller = PlotController(model, main_window, main_controller.emit_event)
+        main_controller.set_plot_controller(plot_controller)
+        logger.info("[PRIORITY] PlotController создан и установлен в MainController")
+
         # КРИТИЧНО: Внедрение зависимостей с приоритетной логикой
         _inject_dependencies_priority(main_controller, services, logger)
 
         # НОВОЕ: Настройка приоритетной логики изменяемых параметров
         _setup_priority_logic(main_controller, main_window, components, logger)
 
+        # Подписка PlotVisualizationPanel на событие "plot_built"
+        def on_plot_built(event_data):
+            try:
+                parameters = main_controller.get_selected_parameters()
+                from_time, to_time = main_controller.get_time_range()
+                plot_panel = main_window.plot_panel
+                if plot_panel:
+                    plot_panel.build_plots_for_parameters(parameters, from_time, to_time)
+                    main_controller.logger.info("Построение графиков выполнено по событию plot_built")
+                else:
+                    main_controller.logger.warning("plot_panel не найден в main_window")
+            except Exception as e:
+                main_controller.logger.error(f"Ошибка в обработчике события plot_built: {e}")
+
+        main_controller.subscribe("plot_built", on_plot_built)
+
         # Установка контроллера в UI
         main_window.set_controller(main_controller)
+
+        # Обновление реестра UI компонентов для гарантии инициализации
+        # Исправлено: Метод refresh_ui_registry отсутствует в MainWindow, заменяем на корректный вызов обновления UI
+        if hasattr(main_controller, 'ui_controller') and main_controller.ui_controller:
+            if hasattr(main_controller.ui_controller, 'refresh_ui_registry'):
+                main_controller.ui_controller.refresh_ui_registry()
 
         # КРИТИЧНО: Установка контроллера в ui_components с приоритетной логикой
         if hasattr(main_window, 'ui_components'):
@@ -234,6 +290,10 @@ def _create_application_context_priority(components, logger):
 
             # ИСПРАВЛЕНО: Установка панелей в контроллер с приоритетной логикой
             _setup_ui_panels_priority(main_controller, main_window.ui_components, logger)
+
+        # Исправлено: Установка контроллера в main_window (если есть метод set_controller)
+        if hasattr(main_window, 'set_controller'):
+            main_window.set_controller(main_controller)
 
         # НОВОЕ: Отладочная информация о приоритетной логике
         _debug_priority_setup(main_controller, main_window, logger)
@@ -341,7 +401,7 @@ def _inject_dependencies_priority(controller, services, logger):
 
         # Устанавливаем фильтрационный сервис
         if 'filtering_service' in services:
-            controller.set_filtering_service(services['filtering_service'])
+            controller.set_service('filtering', services['filtering_service'])
             logger.info("[PRIORITY] ParameterFilteringService установлен")
 
         # Устанавливаем PlotManager

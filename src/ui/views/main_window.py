@@ -242,7 +242,10 @@ class MainWindow:
                 controller.set_ui_components(self.ui_components)
                 
                 # Обновляем реестр UI компонентов в контроллере
-                controller.refresh_ui_registry()
+                if hasattr(controller, 'ui_controller') and controller.ui_controller:
+                    controller.ui_controller.refresh_ui_registry()
+                else:
+                    controller.refresh_ui_registry()
                 
                 self.logger.info("✅ Контроллер установлен, UIComponents созданы и реестр обновлен")
             else:
@@ -268,14 +271,29 @@ class MainWindow:
                     self.logger.error(f"Ошибка отложенного обновления реестра: {e}")
             
             # Планируем обновление через указанное время
-            if hasattr(self.view, 'root'):
-                self.view.root.after(delay_ms, refresh_after_delay)
+            if hasattr(self, 'root'):
+                self.root.after(delay_ms, refresh_after_delay)
             else:
                 # Fallback - обновляем сразу
                 refresh_after_delay()
                 
         except Exception as e:
             self.logger.error(f"Ошибка планирования отложенного обновления: {e}")
+
+    def refresh_ui_registry(self):
+        """Обновление реестра UI компонентов, делегирование контроллеру"""
+        try:
+            if self.controller:
+                if hasattr(self.controller, 'ui_controller') and self.controller.ui_controller:
+                    self.controller.ui_controller.refresh_ui_registry()
+                elif hasattr(self.controller, 'refresh_ui_registry'):
+                    self.controller.refresh_ui_registry()
+                else:
+                    self.logger.warning("Контроллер не имеет метода refresh_ui_registry")
+            else:
+                self.logger.warning("Контроллер не установлен для обновления реестра UI")
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления реестра UI: {e}")
 
 
     def _configure_parameter_panel_layout(self):
