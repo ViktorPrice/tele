@@ -1,8 +1,3 @@
-"""
-Панель визуализации графиков с интеграцией Use Cases и Clean Architecture
-"""
-
-
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import logging
@@ -17,25 +12,21 @@ from ...core.application.use_cases.filter_parameters_use_case import (
     FilterParametersUseCase,
     FilterParametersRequest,
     FilterParametersResponse,
-    FilterParametersUseCase,
-    FilterParametersRequest,
-    FilterParametersResponse,
 )
 from ...core.application.use_cases.plot_generation_use_case import (
-    PlotGenerationUseCase,
-    PlotGenerationRequest,
     PlotGenerationUseCase,
     PlotGenerationRequest,
 )
 from ...infrastructure.plotting.adapters.tkinter_plot_adapter import TkinterPlotAdapter
 from ...infrastructure.plotting.core.plot_builder import PlotBuilder
 from ...infrastructure.plotting.interactions.base_interaction import ZoomInteraction
-from ...infrastructure.plotting.interactions.base_interaction import ZoomInteraction
 
 class PlotVisualizationPanel(ttk.Frame):
     """Панель визуализации графиков с полной интеграцией архитектуры"""
 
     class TimeAxisZoomInteraction:
+        """Класс для обработки масштабирования по оси времени"""
+        
         def __init__(self, canvas, figure):
             self.canvas = canvas
             self.figure = figure
@@ -43,9 +34,11 @@ class PlotVisualizationPanel(ttk.Frame):
             self.logger = logging.getLogger(self.__class__.__name__)
 
         def setup_handlers(self):
+            """Настройка обработчиков событий"""
             self._scroll_cid = self.canvas.mpl_connect('scroll_event', self._on_scroll)
 
         def _on_scroll(self, event):
+            """Обработчик события прокрутки колесом мыши"""
             try:
                 if event.inaxes is None:
                     return
@@ -78,52 +71,7 @@ class PlotVisualizationPanel(ttk.Frame):
                 self.logger.error(f"Ошибка масштабирования колесом мыши: {e}")
 
         def cleanup(self):
-            if self._scroll_cid:
-                self.canvas.mpl_disconnect(self._scroll_cid)
-
-    class TimeAxisZoomInteraction:
-        def __init__(self, canvas, figure):
-            self.canvas = canvas
-            self.figure = figure
-            self._scroll_cid = None
-            self.logger = logging.getLogger(self.__class__.__name__)
-
-        def setup_handlers(self):
-            self._scroll_cid = self.canvas.mpl_connect('scroll_event', self._on_scroll)
-
-        def _on_scroll(self, event):
-            try:
-                if event.inaxes is None:
-                    return
-
-                ax = event.inaxes
-
-                # Улучшенное логирование для диагностики
-                self.logger.debug(f"Scroll event: step={event.step}, x={event.x}, y={event.y}")
-                self.logger.debug(f"Event inaxes: {event.inaxes}")
-                self.logger.debug(f"Event xdata: {event.xdata}")
-                self.logger.debug(f"Current xlim: {ax.get_xlim()}")
-
-                # Определяем направление масштабирования
-                zoom_factor = 1.2 if event.step < 0 else 1 / 1.2
-
-                xdata = event.xdata
-                if xdata is None:
-                    return
-
-                xlim = ax.get_xlim()
-                x_center = xdata
-                x_range = xlim[1] - xlim[0]
-
-                new_x_range = x_range * zoom_factor
-                new_xlim = (x_center - new_x_range / 2, x_center + new_x_range / 2)
-
-                ax.set_xlim(new_xlim)
-                self.canvas.draw_idle()
-            except Exception as e:
-                self.logger.error(f"Ошибка масштабирования колесом мыши: {e}")
-
-        def cleanup(self):
+            """Очистка обработчиков событий"""
             if self._scroll_cid:
                 self.canvas.mpl_disconnect(self._scroll_cid)
 
@@ -149,13 +97,10 @@ class PlotVisualizationPanel(ttk.Frame):
         self.current_session_id: Optional[str] = None
         self.is_building_plots = False
 
-        # Инициализация max_params_var здесь, чтобы гарантировать наличие атрибута
+        # Инициализация переменных управления
         self.max_params_var = tk.IntVar(value=10)
         self.plot_type_var = tk.StringVar(value="step")
-
-        # Инициализация max_params_var здесь, чтобы гарантировать наличие атрибута
-        self.max_params_var = tk.IntVar(value=10)
-        self.plot_type_var = tk.StringVar(value="step")
+        self.auto_update_var = tk.BooleanVar(value=True)
 
         self._setup_ui()
         self._setup_use_cases()
@@ -186,14 +131,11 @@ class PlotVisualizationPanel(ttk.Frame):
         self.control_frame = ttk.LabelFrame(
             self, text="Управление графиками", padding="10"
         )
-            self, text="Управление графиками", padding="10"
-        )
         self.control_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
         self.control_frame.grid_columnconfigure(1, weight=1)
 
         # Кнопки управления
         buttons_frame = ttk.Frame(self.control_frame)
-        buttons_frame.grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 10))
         buttons_frame.grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 10))
 
         # Основные кнопки
@@ -217,45 +159,18 @@ class PlotVisualizationPanel(ttk.Frame):
             buttons_frame, text="🔍 Сброс масштабирования", command=self._reset_zoom_current_plot
         ).pack(side=tk.LEFT, padx=(0, 5))
 
-    def _reset_zoom_current_plot(self):
-        """Сброс масштабирования для текущего графика"""
-        try:
-            current_tab = self.notebook.select()
-            if not current_tab:
-                return
-            tab_text = self.notebook.tab(current_tab, "text")
-            if tab_text in self.plot_tabs and "time_zoom_interaction" in self.plot_tabs[tab_text]:
-                tab_info = self.plot_tabs[tab_text]
-                figure = tab_info.get("figure")
-                if figure and figure.axes:
-                    ax = figure.axes[0]
-                    ax.autoscale()
-                    figure.canvas.draw_idle()
-                self.logger.info(f"Сброс масштабирования для графика '{tab_text}' выполнен")
-        except Exception as e:
-            self.logger.error(f"Ошибка сброса масштабирования: {e}")
-
         # Настройки отображения
         settings_frame = ttk.Frame(self.control_frame)
-        settings_frame.grid(row=1, column=0, columnspan=4, sticky="ew")
         settings_frame.grid(row=1, column=0, columnspan=4, sticky="ew")
         settings_frame.grid_columnconfigure(1, weight=1)
 
         # Тип графика
         ttk.Label(settings_frame, text="Тип:").grid(row=0, column=0, sticky="w")
-        # Инициализация plot_type_var здесь, чтобы избежать ошибки отсутствия атрибута
-        if not hasattr(self, 'plot_type_var') or self.plot_type_var is None:
-            self.plot_type_var = tk.StringVar(value="step")
-        ttk.Label(settings_frame, text="Тип:").grid(row=0, column=0, sticky="w")
-        # Инициализация plot_type_var здесь, чтобы избежать ошибки отсутствия атрибута
-        if not hasattr(self, 'plot_type_var') or self.plot_type_var is None:
-            self.plot_type_var = tk.StringVar(value="step")
         plot_type_combo = ttk.Combobox(
             settings_frame,
             textvariable=self.plot_type_var,
             values=["line", "step", "scatter"],
             state="readonly",
-            width=10,
             width=10,
         )
         plot_type_combo.grid(row=0, column=1, sticky="w", padx=(5, 0))
@@ -264,24 +179,13 @@ class PlotVisualizationPanel(ttk.Frame):
         ttk.Label(settings_frame, text="Макс. параметров:").grid(
             row=0, column=2, sticky="w", padx=(20, 0)
         )
-        # Инициализация max_params_var один раз
-        if not hasattr(self, 'max_params_var') or self.max_params_var is None:
-            self.max_params_var = tk.IntVar(value=10)
-            row=0, column=2, sticky="w", padx=(20, 0)
-        )
-        # Инициализация max_params_var один раз
-        if not hasattr(self, 'max_params_var') or self.max_params_var is None:
-            self.max_params_var = tk.IntVar(value=10)
         max_params_spin = tk.Spinbox(
-            settings_frame, from_=1, to=50, textvariable=self.max_params_var, width=5
             settings_frame, from_=1, to=50, textvariable=self.max_params_var, width=5
         )
         max_params_spin.grid(row=0, column=3, sticky="w", padx=(5, 0))
 
         # Автообновление
-        self.auto_update_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
-            settings_frame, text="Автообновление", variable=self.auto_update_var
             settings_frame, text="Автообновление", variable=self.auto_update_var
         ).grid(row=0, column=4, sticky="w", padx=(20, 0))
 
@@ -301,12 +205,8 @@ class PlotVisualizationPanel(ttk.Frame):
             selected_tab = event.widget.select()
             tab_text = event.widget.tab(selected_tab, "text")
             self.logger.info(f"Вкладка изменена: {tab_text}")
-            # Можно добавить логику обновления состояния или данных при смене вкладки
         except Exception as e:
             self.logger.error(f"Ошибка в обработчике изменения вкладки: {e}")
-
-        # Создаем стартовую вкладку
-        self._create_welcome_tab()
 
     def _on_tab_right_click(self, event):
         """Обработчик правого клика по вкладке"""
@@ -374,10 +274,7 @@ class PlotVisualizationPanel(ttk.Frame):
             content_frame,
             text=info_text,
             font=("Arial", 11),
-            font=("Arial", 11),
             justify=tk.CENTER,
-            fg="#555555",
-            bg="white",
             fg="#555555",
             bg="white",
         )
@@ -389,28 +286,38 @@ class PlotVisualizationPanel(ttk.Frame):
         self.context_menu.add_command(
             label="🔄 Обновить", command=self._refresh_current_plot
         )
-            label="🔄 Обновить", command=self._refresh_current_plot
-        )
         self.context_menu.add_command(
-            label="💾 Экспорт", command=self._export_current_plot
-        )
             label="💾 Экспорт", command=self._export_current_plot
         )
         self.context_menu.add_separator()
         self.context_menu.add_command(
             label="📋 Дублировать", command=self._duplicate_current_plot
         )
-            label="📋 Дублировать", command=self._duplicate_current_plot
-        )
         self.context_menu.add_command(
-            label="⚙️ Настройки", command=self._configure_current_plot
-        )
             label="⚙️ Настройки", command=self._configure_current_plot
         )
         self.context_menu.add_separator()
         self.context_menu.add_command(
             label="❌ Закрыть", command=self._close_current_plot
         )
+
+    def _reset_zoom_current_plot(self):
+        """Сброс масштабирования для текущего графика"""
+        try:
+            current_tab = self.notebook.select()
+            if not current_tab:
+                return
+            tab_text = self.notebook.tab(current_tab, "text")
+            if tab_text in self.plot_tabs and "time_zoom_interaction" in self.plot_tabs[tab_text]:
+                tab_info = self.plot_tabs[tab_text]
+                figure = tab_info.get("figure")
+                if figure and figure.axes:
+                    ax = figure.axes[0]
+                    ax.autoscale()
+                    figure.canvas.draw_idle()
+                self.logger.info(f"Сброс масштабирования для графика '{tab_text}' выполнен")
+        except Exception as e:
+            self.logger.error(f"Ошибка сброса масштабирования: {e}")
 
     def _duplicate_current_plot(self):
         """Дублирование текущей вкладки графика"""
@@ -447,30 +354,22 @@ class PlotVisualizationPanel(ttk.Frame):
         """Настройка Use Cases"""
         try:
             if self.controller and hasattr(self.controller, "model"):
-            if self.controller and hasattr(self.controller, "model"):
                 model = self.controller.model
 
                 # Инициализация Use Cases
                 if hasattr(model, "parameter_repository") and hasattr(
                     model, "filtering_service"
                 ):
-                if hasattr(model, "parameter_repository") and hasattr(
-                    model, "filtering_service"
-                ):
                     self.filter_use_case = FilterParametersUseCase(
-                        model.parameter_repository, model.filtering_service
                         model.parameter_repository, model.filtering_service
                     )
 
-                if hasattr(model, "data_loader"):
                 if hasattr(model, "data_loader"):
                     self.plot_builder = PlotBuilder(model.data_loader)
 
                 self.logger.info("Use Cases инициализированы")
             else:
                 self.logger.warning(
-                    "Контроллер или модель недоступны для инициализации Use Cases"
-                )
                     "Контроллер или модель недоступны для инициализации Use Cases"
                 )
 
@@ -482,10 +381,7 @@ class PlotVisualizationPanel(ttk.Frame):
     def build_plots_for_parameters(
         self, parameters: List[Dict[str, Any]], start_time: datetime, end_time: datetime
     ):
-    def build_plots_for_parameters(
-        self, parameters: List[Dict[str, Any]], start_time: datetime, end_time: datetime
-    ):
-        """ИСПРАВЛЕННОЕ построение графиков для параметров"""
+        """Построение графиков для параметров"""
         try:
             if self.is_building_plots:
                 self.logger.warning("Построение графиков уже выполняется")
@@ -511,10 +407,6 @@ class PlotVisualizationPanel(ttk.Frame):
                 return
 
             # Проверяем data_loader
-            if (
-                not hasattr(self.plot_builder, "data_loader")
-                or not self.plot_builder.data_loader
-            ):
             if (
                 not hasattr(self.plot_builder, "data_loader")
                 or not self.plot_builder.data_loader
@@ -578,17 +470,12 @@ class PlotVisualizationPanel(ttk.Frame):
         except Exception as e:
             self.logger.error(f"Ошибка построения графиков: {e}")
             import traceback
-
-
             traceback.print_exc()
             self._show_error(f"Ошибка построения графиков: {e}")
         finally:
             self.is_building_plots = False
             self._show_building_progress(False)
 
-    def _group_parameters_for_plots(
-        self, parameters: List[Dict[str, Any]]
-    ) -> Dict[str, List[Dict[str, Any]]]:
     def _group_parameters_for_plots(
         self, parameters: List[Dict[str, Any]]
     ) -> Dict[str, List[Dict[str, Any]]]:
@@ -600,7 +487,6 @@ class PlotVisualizationPanel(ttk.Frame):
             # Группировка по типу данных
             type_groups = {}
             for param in parameters:
-                signal_type = param.get("signal_type", "Unknown")
                 signal_type = param.get("signal_type", "Unknown")
                 if signal_type not in type_groups:
                     type_groups[signal_type] = []
@@ -615,7 +501,6 @@ class PlotVisualizationPanel(ttk.Frame):
                     # Разбиваем на подгруппы
                     for i in range(0, len(type_params), max_params):
                         subgroup = type_params[i : i + max_params]
-                        subgroup = type_params[i : i + max_params]
                         group_num = (i // max_params) + 1
                         groups[f"{signal_type} сигналы (часть {group_num})"] = subgroup
 
@@ -625,15 +510,7 @@ class PlotVisualizationPanel(ttk.Frame):
             self.logger.error(f"Ошибка группировки параметров: {e}")
             # Fallback - один график со всеми параметрами
             return {"Все параметры": parameters[: self.max_params_var.get()]}
-            return {"Все параметры": parameters[: self.max_params_var.get()]}
 
-    def _create_plot_tab(
-        self,
-        tab_name: str,
-        parameters: List[Dict[str, Any]],
-        start_time: datetime,
-        end_time: datetime,
-    ):
     def _create_plot_tab(
         self,
         tab_name: str,
@@ -647,26 +524,13 @@ class PlotVisualizationPanel(ttk.Frame):
                 self.logger.error("PlotBuilder не инициализирован")
                 return
 
-            # Проверяем и инициализируем plot_type_var, если отсутствует
-            if not hasattr(self, 'plot_type_var') or self.plot_type_var is None:
-                self.plot_type_var = tk.StringVar(value="step")
-
-            # Проверяем и инициализируем plot_type_var, если отсутствует
-            if not hasattr(self, 'plot_type_var') or self.plot_type_var is None:
-                self.plot_type_var = tk.StringVar(value="step")
-
             # Создание графика через PlotBuilder
             figure, ax = self.plot_builder.build_plot(
                 parameters,
                 start_time,
                 end_time,
                 title=tab_name,
-                strategy=self.plot_type_var.get() if self.plot_type_var and self.plot_type_var.get() else "step",
-                parameters,
-                start_time,
-                end_time,
-                title=tab_name,
-                strategy=self.plot_type_var.get() if self.plot_type_var and self.plot_type_var.get() else "step",
+                strategy=self.plot_type_var.get(),
             )
 
             # Создание UI виджета через адаптер
@@ -684,20 +548,8 @@ class PlotVisualizationPanel(ttk.Frame):
             time_zoom = self.TimeAxisZoomInteraction(canvas, figure)
             time_zoom.setup_handlers()
 
-            # Создаем TimeAxisZoomInteraction для масштабирования по оси времени
-            time_zoom = self.TimeAxisZoomInteraction(canvas, figure)
-            time_zoom.setup_handlers()
-
             # Сохранение информации о вкладке
             self.plot_tabs[tab_name] = {
-                "parameters": parameters,
-                "start_time": start_time,
-                "end_time": end_time,
-                "figure": figure,
-                "canvas": canvas,
-                "info_panel": info_panel,
-                "container": plot_container,
-                "time_zoom_interaction": time_zoom,
                 "parameters": parameters,
                 "start_time": start_time,
                 "end_time": end_time,
@@ -773,11 +625,7 @@ class PlotVisualizationPanel(ttk.Frame):
                 tab_info["parameters"],
                 tab_info["start_time"],
                 tab_info["end_time"],
-                tab_info["parameters"],
-                tab_info["start_time"],
-                tab_info["end_time"],
                 title=tab_name,
-                strategy=self.plot_type_var.get(),
                 strategy=self.plot_type_var.get(),
             )
 
@@ -785,7 +633,6 @@ class PlotVisualizationPanel(ttk.Frame):
             self.plot_adapter.update_plot(tab_name, figure)
 
             # Обновление сохраненной информации
-            tab_info["figure"] = figure
             tab_info["figure"] = figure
 
         except Exception as e:
@@ -813,7 +660,6 @@ class PlotVisualizationPanel(ttk.Frame):
             self._clear_all_plots()
 
             # Создаем новые группированные графики
-            self.build_plots_for_parameters(selected_params, start_time, end_time)
             self.build_plots_for_parameters(selected_params, start_time, end_time)
 
         except Exception as e:
@@ -927,7 +773,7 @@ class PlotVisualizationPanel(ttk.Frame):
 
             # Тип графика
             ttk.Label(display_frame, text="Тип графика:").grid(row=0, column=0, sticky="w")
-            plot_type_var = tk.StringVar(value=self.plot_type_var.get() if self.plot_type_var else "step")
+            plot_type_var = tk.StringVar(value=self.plot_type_var.get())
             plot_type_combo = ttk.Combobox(
                 display_frame,
                 textvariable=plot_type_var,
